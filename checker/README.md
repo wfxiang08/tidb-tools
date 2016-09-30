@@ -36,9 +36,17 @@ go build
 ## Incompatible problems
 
 We only check the following incompatible problems:
+
+- Unsupported create table syntax
+
+Not all options/constrains are supported by TiDB.
+
 - Unsupported charset
+
 TiDB Only support uft8, binary charset.
+
 - Foreign Key
+
 TiDB parse foreign key syntax but do not do the actual constrain checking. This will report a warning.
 
 ## License
