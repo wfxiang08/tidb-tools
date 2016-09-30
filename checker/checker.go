@@ -38,7 +38,7 @@ func (c *checker) close() error {
 }
 
 func (c *checker) connectDB() (err error) {
-	c.db, err = createDB(c.dbName)
+	c.db, err = openDB(c.dbName)
 	if err != nil {
 		log.Fatal("Open database connection failed:", err)
 	}
@@ -93,7 +93,7 @@ func (c *checker) getCreateTable(tn string) (string, error) {
 		return "", errors.Trace(err)
 	}
 	defer rs.Close()
-	for rs.Next() {
+	if rs.Next() {
 		var (
 			name string
 			cs   string

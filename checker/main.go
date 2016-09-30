@@ -17,6 +17,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"os"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
@@ -31,7 +32,7 @@ var (
 	password = flag.String("password", "", "Password")
 )
 
-func createDB(dbName string) (*sql.DB, error) {
+func openDB(dbName string) (*sql.DB, error) {
 	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", *username, *password, *host, *port, dbName)
 	log.Infof("Database DSN: %s", dbDSN)
 	db, err := sql.Open("mysql", dbDSN)
@@ -62,8 +63,10 @@ func main() {
 	err := c.check()
 	if err != nil {
 		log.Errorf("Check database error: %s", err)
+		os.Exit(2)
 	} else if c.warnings > 0 || c.errs > 0 {
 		log.Errorf("Check database %s with %d errors and %d warnings.", c.dbName, c.errs, c.warnings)
+		os.Exit(2)
 	} else {
 		fmt.Println("Check database succ!")
 	}
