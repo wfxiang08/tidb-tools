@@ -62,8 +62,8 @@ func main() {
 	err := c.check()
 	if err != nil {
 		log.Errorf("Check database error: %s", err)
-	} else if c.warnings > 0 {
-		log.Warnf("Check database with %d warnings", c.warnings)
+	} else if c.warnings > 0 || c.errs > 0 {
+		log.Errorf("Check database %s with %d errors and %d warnings.", c.dbName, c.errs, c.warnings)
 	} else {
 		fmt.Println("Check database succ!")
 	}

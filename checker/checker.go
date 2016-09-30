@@ -30,6 +30,7 @@ type checker struct {
 	dbName   string
 	tbls     []string
 	warnings int
+	errs     int
 }
 
 func (c *checker) close() error {
@@ -62,9 +63,12 @@ func (c *checker) check() error {
 		log.Infof("Checking table %s", t)
 		err := c.checkTable(t)
 		if err != nil {
-			return errors.Trace(err)
+			c.errs++
+			log.Errorf("Check table %s failed with err: %s", t, err)
+
+		} else {
+			log.Infof("Check table %s succ", t)
 		}
-		log.Infof("Check table %s succ", t)
 	}
 	return nil
 }
@@ -160,7 +164,7 @@ func (c *checker) checkColumnDef(def *ast.ColumnDef) error {
 func (c *checker) checkConstraint(cst *ast.Constraint) error {
 	switch cst.Tp {
 	case ast.ConstraintForeignKey:
-		log.Warnf("Foreign Key is parsed but ignored by TiDB.")
+		log.Errorf("Foreign Key is parsed but ignored by TiDB.")
 		c.warnings++
 		return nil
 	}
