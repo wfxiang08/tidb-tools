@@ -1,6 +1,6 @@
 ## Checker
 
-Checker is a tool for check the compatibility of an existed MySQL database with TiDB.
+Checker is a tool for checking the compatibility of an existed MySQL database with TiDB.
 
 ## How to use
 
