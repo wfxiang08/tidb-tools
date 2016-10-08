@@ -1,8 +1,4 @@
-CURDIR := $(shell pwd)
-path_to_add := $(addsuffix /bin,$(subst :,/bin:,$(CURDIR)/vendor:$(GOPATH)))
-export PATH := $(path_to_add):$(PATH)
-
-GO        := GO15VENDOREXPERIMENT="1" go
+GO := GO15VENDOREXPERIMENT="1" go
 
 .PHONY: build importer syncer checker test check deps
 
