@@ -1,23 +1,21 @@
 CURDIR := $(shell pwd)
-path_to_add := $(addsuffix /bin,$(subst :,/bin:,$(CURDIR)/_vendor:$(GOPATH)))
+path_to_add := $(addsuffix /bin,$(subst :,/bin:,$(CURDIR)/vendor:$(GOPATH)))
 export PATH := $(path_to_add):$(PATH)
 
 GO        := GO15VENDOREXPERIMENT="1" go
-GOBUILD   := GOPATH=$(CURDIR)/_vendor:$(GOPATH) $(GO) build
-GOTEST    := GOPATH=$(CURDIR)/_vendor:$(GOPATH) $(GO) test
 
 .PHONY: build importer syncer checker test check deps
 
 build: importer syncer checker check test
 
 importer:
-	$(GOBUILD) -o bin/importer ./importer
+	$(GO) build -o bin/importer ./importer
 
 syncer:
-	$(GOBUILD) -o bin/syncer ./syncer
+	$(GO) build -o bin/syncer ./syncer
 
 checker:
-	$(GOBUILD) -o bin/checker ./checker
+	$(GO) build -o bin/checker ./checker
 
 test:
 
