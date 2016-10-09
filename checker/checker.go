@@ -122,11 +122,13 @@ func (c *checker) checkTable(tableName string) error {
 func (c *checker) checkCreateSQL(createSQL string) error {
 	stmt, err := parser.New().ParseOneStmt(createSQL, "", "")
 	if err != nil {
+		log.Errorf("parse error, %s, %s", err, createSQL)
 		return errors.Trace(err)
 	}
 	// Analyze ast
 	err = c.checkAST(stmt)
 	if err != nil {
+		log.Errorf("checkAST error: %s", err)
 		return errors.Trace(err)
 	}
 	return nil
@@ -183,7 +185,7 @@ func (c *checker) checkTableOption(opt *ast.TableOption) error {
 	case ast.TableOptionCharset:
 		// Check charset
 		cs := strings.ToLower(opt.StrValue)
-		if !charset.ValidCharsetAndCollation(cs, "") {
+		if cs != "binary" && !charset.ValidCharsetAndCollation(cs, "") {
 			return errors.Errorf("Unsupported charset %s", opt.StrValue)
 		}
 	}
