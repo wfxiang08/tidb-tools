@@ -1,5 +1,5 @@
 hash: 2b5fbb99ef4643e3e08d384c04c8288b811c4ae8c18615fbe95152afd86359b3
-updated: 2016-10-08T17:30:15.126368534+08:00
+updated: 2016-10-09T19:53:08.088074356+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -44,7 +44,7 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/pingcap/tidb
-  version: f86a32d26121388e9d5bc2d839dd43321fa2499f
+  version: 8930ed05b171f6b3c04c7cea51759195329893ec
   subpackages:
   - ast
   - context
@@ -77,7 +77,7 @@ imports:
   - util/stringutil
   - util/types
 - name: github.com/pingcap/tipb
-  version: 3931be3ee2fa836542a350824dafd681c15d0d91
+  version: 29c61e269421d62b8e7dabca58ebd00e84b06dc2
   subpackages:
   - go-binlog
 - name: github.com/prometheus/client_golang
