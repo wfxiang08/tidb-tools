@@ -1,14 +1,17 @@
-GO=GO15VENDOREXPERIMENT="1" go
+GO := GO15VENDOREXPERIMENT="1" go
 
-.PHONY: build importer syncer test check deps
+.PHONY: build importer syncer checker test check deps
 
-build: importer syncer check test
+build: importer syncer checker check test
 
 importer:
 	$(GO) build -o bin/importer ./importer
 
 syncer:
 	$(GO) build -o bin/syncer ./syncer
+
+checker:
+	$(GO) build -o bin/checker ./checker
 
 test:
 

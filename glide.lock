@@ -1,0 +1,150 @@
+hash: 2b5fbb99ef4643e3e08d384c04c8288b811c4ae8c18615fbe95152afd86359b3
+updated: 2016-10-08T17:30:15.126368534+08:00
+imports:
+- name: github.com/beorn7/perks
+  version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
+  subpackages:
+  - quantile
+- name: github.com/BurntSushi/toml
+  version: 99064174e013895bbd9b025c31100bd1d9b590ca
+- name: github.com/go-sql-driver/mysql
+  version: 0b58b37b664c21f3010e836f1b931e1d0b0b0685
+- name: github.com/golang/protobuf
+  version: 874264fbbb43f4d91e999fecb4b40143ed611400
+  subpackages:
+  - jsonpb
+  - proto
+- name: github.com/golang/snappy
+  version: 723cc1e459b8eea2dea4583200fd60757d40097a
+- name: github.com/juju/errors
+  version: 6f54ff6318409d31ff16261533ce2c8381a4fd5d
+- name: github.com/matttproud/golang_protobuf_extensions
+  version: c12348ce28de40eed0136aa2b644d0ee0650e56c
+  subpackages:
+  - pbutil
+- name: github.com/ngaut/log
+  version: cec23d3e10b016363780d894a0eb732a12c06e02
+- name: github.com/petar/GoLLRB
+  version: 53be0d36a84c2a886ca057d34b6aa4468df9ccb4
+  subpackages:
+  - llrb
+- name: github.com/pingcap/goleveldb
+  version: c131135d59a38f4212f627cde570dddfe5261c43
+  subpackages:
+  - leveldb
+  - leveldb/cache
+  - leveldb/comparer
+  - leveldb/errors
+  - leveldb/filter
+  - leveldb/iterator
+  - leveldb/journal
+  - leveldb/memdb
+  - leveldb/opt
+  - leveldb/storage
+  - leveldb/table
+  - leveldb/util
+- name: github.com/pingcap/tidb
+  version: f86a32d26121388e9d5bc2d839dd43321fa2499f
+  subpackages:
+  - ast
+  - context
+  - ddl
+  - evaluator
+  - infoschema
+  - inspectkv
+  - kv
+  - meta
+  - meta/autoid
+  - model
+  - mysql
+  - parser
+  - parser/opcode
+  - perfschema
+  - plan/statistics
+  - sessionctx/binloginfo
+  - sessionctx/db
+  - sessionctx/variable
+  - structure
+  - table
+  - table/tables
+  - tablecodec
+  - terror
+  - util
+  - util/charset
+  - util/codec
+  - util/distinct
+  - util/hack
+  - util/stringutil
+  - util/types
+- name: github.com/pingcap/tipb
+  version: 3931be3ee2fa836542a350824dafd681c15d0d91
+  subpackages:
+  - go-binlog
+- name: github.com/prometheus/client_golang
+  version: c5b7fccd204277076155f10851dad72b76a49317
+  subpackages:
+  - prometheus
+  - prometheus/push
+- name: github.com/prometheus/client_model
+  version: fa8ad6fec33561be4280a8f0514318c79d7f6cb6
+  subpackages:
+  - go
+- name: github.com/prometheus/common
+  version: 4402f4e5ea79ec15f3c574773b6a5198fbea215f
+  subpackages:
+  - expfmt
+  - internal/bitbucket.org/ww/goautoneg
+  - model
+- name: github.com/prometheus/procfs
+  version: abf152e5f3e97f2fafac028d2cc06c1feb87ffa5
+- name: github.com/satori/go.uuid
+  version: 879c5887cd475cd7864858769793b2ceb0d44feb
+- name: github.com/siddontang/go
+  version: 354e14e6c093c661abb29fd28403b3c19cff5514
+  subpackages:
+  - hack
+  - ioutil2
+  - sync2
+- name: github.com/siddontang/go-mysql
+  version: d8e777f00cdbb2bc200ebeb80364b0bcc098362e
+  subpackages:
+  - client
+  - mysql
+  - packet
+  - replication
+- name: github.com/twinj/uuid
+  version: 70cac2bcd273ef6a371bb96cde363d28b68734c3
+- name: golang.org/x/net
+  version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
+  subpackages:
+  - context
+  - http2
+  - http2/hpack
+  - internal/timeseries
+  - lex/httplex
+  - trace
+- name: golang.org/x/text
+  version: 723492b65e225eafcba054e76ba18bb9c5ac1ea2
+  subpackages:
+  - encoding
+  - encoding/charmap
+  - encoding/internal
+  - encoding/internal/identifier
+  - encoding/japanese
+  - encoding/korean
+  - encoding/simplifiedchinese
+  - encoding/traditionalchinese
+  - encoding/unicode
+  - transform
+- name: google.golang.org/grpc
+  version: 02fca896ff5f50c6bbbee0860345a49344b37a03
+  subpackages:
+  - codes
+  - credentials
+  - grpclog
+  - internal
+  - metadata
+  - naming
+  - peer
+  - transport
+testImports: []

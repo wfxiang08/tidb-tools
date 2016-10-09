@@ -1,0 +1,27 @@
+package: github.com/pingcap/tidb-tools
+import:
+- package: github.com/BurntSushi/toml
+- package: github.com/go-sql-driver/mysql
+- package: github.com/juju/errors
+- package: github.com/ngaut/log
+- package: github.com/pingcap/tidb
+  subpackages:
+  - ast
+  - ddl
+  - infoschema
+  - mysql
+  - parser
+  - terror
+  - util/charset
+  - util/types
+- package: github.com/siddontang/go-mysql
+  subpackages:
+  - mysql
+  - replication
+- package: github.com/siddontang/go
+  subpackages:
+  - ioutil2
+  - sync2
+- package: golang.org/x/net
+  subpackages:
+  - context
