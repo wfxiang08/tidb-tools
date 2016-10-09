@@ -88,8 +88,10 @@ func (c *checker) getTables() error {
 }
 
 func (c *checker) getCreateTable(tn string) (string, error) {
-	rs, err := querySQL(c.db, fmt.Sprintf("show create table %s;", tn))
+	stmt := fmt.Sprintf("show create table %s;", tn)
+	rs, err := querySQL(c.db, stmt)
 	if err != nil {
+		log.Errorf("Get create table failed: %s", stmt)
 		return "", errors.Trace(err)
 	}
 	defer rs.Close()
@@ -109,7 +111,12 @@ func (c *checker) checkTable(tableName string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return c.checkCreateSQL(createSQL)
+	err = c.checkCreateSQL(createSQL)
+	if err != nil {
+		log.Errorf("Check create table failed: %s", createSQL)
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func (c *checker) checkCreateSQL(createSQL string) error {
