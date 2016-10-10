@@ -6,9 +6,16 @@ tidb-tools are some useful tool collections for [TiDB](https://github.com/pingca
 ## How to build
 
 ```
-make deps && sh deps.sh (optional, install golang dependent packages)
-make build
+make build # build all tools
+
+make importer # build importer
+
+make syncer # build syncer
+
+make checker # build checker
 ```
+
+When build successfully, you can find the binary in bin directory. 
 
 ## Tool list
 
