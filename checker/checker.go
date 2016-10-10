@@ -64,8 +64,7 @@ func (c *checker) check() error {
 		err := c.checkTable(t)
 		if err != nil {
 			c.errs++
-			log.Errorf("Check table %s failed with err: %s", t, err)
-
+			log.Errorf("Check table %s failed with err: %s", t, errors.ErrorStack(err))
 		} else {
 			log.Infof("Check table %s succ", t)
 		}
@@ -88,7 +87,8 @@ func (c *checker) getTables() error {
 }
 
 func (c *checker) getCreateTable(tn string) (string, error) {
-	rs, err := querySQL(c.db, fmt.Sprintf("show create table %s;", tn))
+	stmt := fmt.Sprintf("show create table %s;", tn)
+	rs, err := querySQL(c.db, stmt)
 	if err != nil {
 		return "", errors.Trace(err)
 	}
@@ -109,17 +109,22 @@ func (c *checker) checkTable(tableName string) error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	return c.checkCreateSQL(createSQL)
+	err = c.checkCreateSQL(createSQL)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return nil
 }
 
 func (c *checker) checkCreateSQL(createSQL string) error {
 	stmt, err := parser.New().ParseOneStmt(createSQL, "", "")
 	if err != nil {
-		return errors.Trace(err)
+		return errors.Annotatef(err, " parse %s error", createSQL)
 	}
 	// Analyze ast
 	err = c.checkAST(stmt)
 	if err != nil {
+		log.Errorf("checkAST error: %s", err)
 		return errors.Trace(err)
 	}
 	return nil
@@ -176,7 +181,7 @@ func (c *checker) checkTableOption(opt *ast.TableOption) error {
 	case ast.TableOptionCharset:
 		// Check charset
 		cs := strings.ToLower(opt.StrValue)
-		if !charset.ValidCharsetAndCollation(cs, "") {
+		if cs != "binary" && !charset.ValidCharsetAndCollation(cs, "") {
 			return errors.Errorf("Unsupported charset %s", opt.StrValue)
 		}
 	}
