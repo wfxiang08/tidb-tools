@@ -64,8 +64,7 @@ func (c *checker) check() error {
 		err := c.checkTable(t)
 		if err != nil {
 			c.errs++
-			log.Errorf("Check table %s failed with err: %s", t, err)
-
+			log.Errorf("Check table %s failed with err: %s", t, errors.ErrorStack(err))
 		} else {
 			log.Infof("Check table %s succ", t)
 		}
@@ -91,7 +90,6 @@ func (c *checker) getCreateTable(tn string) (string, error) {
 	stmt := fmt.Sprintf("show create table %s;", tn)
 	rs, err := querySQL(c.db, stmt)
 	if err != nil {
-		log.Errorf("Get create table failed: %s", stmt)
 		return "", errors.Trace(err)
 	}
 	defer rs.Close()
@@ -113,7 +111,6 @@ func (c *checker) checkTable(tableName string) error {
 	}
 	err = c.checkCreateSQL(createSQL)
 	if err != nil {
-		log.Errorf("Check create table failed: %s", createSQL)
 		return errors.Trace(err)
 	}
 	return nil
@@ -122,8 +119,7 @@ func (c *checker) checkTable(tableName string) error {
 func (c *checker) checkCreateSQL(createSQL string) error {
 	stmt, err := parser.New().ParseOneStmt(createSQL, "", "")
 	if err != nil {
-		log.Errorf("parse error, %s, %s", err, createSQL)
-		return errors.Trace(err)
+		return errors.Trace(errors.Annotatef(err, " parse error %s", createSQL))
 	}
 	// Analyze ast
 	err = c.checkAST(stmt)
