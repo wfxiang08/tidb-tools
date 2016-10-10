@@ -119,7 +119,7 @@ func (c *checker) checkTable(tableName string) error {
 func (c *checker) checkCreateSQL(createSQL string) error {
 	stmt, err := parser.New().ParseOneStmt(createSQL, "", "")
 	if err != nil {
-		return errors.Trace(errors.Annotatef(err, " parse error %s", createSQL))
+		return errors.Trace(errors.Annotatef(err, " parse %s error", createSQL))
 	}
 	// Analyze ast
 	err = c.checkAST(stmt)
