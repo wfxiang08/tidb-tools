@@ -50,6 +50,13 @@ func closeDB(db *sql.DB) error {
 }
 
 func main() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		fmt.Fprint(os.Stderr, "./bin/checker command-line-flags dbname [tablename list]\n")
+		fmt.Fprint(os.Stderr, "Command line flags:\n")
+		flag.PrintDefaults()
+	}
+
 	flag.Parse()
 	if len(flag.Args()) == 0 {
 		log.Error("Miss database name")
