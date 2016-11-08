@@ -16,10 +16,13 @@ Check following requirements:
 - sysctl.conf
 - ulmit
 
+NOTE: requires ``bash`` to run.
+
 ### How to use
 
 ```
 cd /path/to/tidb-tools/scripts
+chmod a+x ./checkenv.sh # make sure the script is executable
 ./checkenv.sh
 ```
 
@@ -53,4 +56,5 @@ Checking ulimit -n (fd num)... 1024 too low
 ```
 
 ## License
+
 Apache 2.0 license. See the [LICENSE](../LICENSE) file for details.
