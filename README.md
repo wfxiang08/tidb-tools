@@ -15,7 +15,7 @@ make syncer # build syncer
 make checker # build checker
 ```
 
-When build successfully, you can find the binary in bin directory. 
+When build successfully, you can find the binary in bin directory.
 
 ## Tool list
 
@@ -30,6 +30,10 @@ A tool for syncing source database data to target database which is compatible w
 [checker](./checker)
 
 A tool for checking the compatibility of an existed MySQL database with TiDB.
+
+[scripts](./scripts)
+
+Collection of auxiliary scripts.
 
 ## License
 Apache 2.0 license. See the [LICENSE](./LICENSE) file for details.
