@@ -129,18 +129,6 @@ check_memory_total () {
     fi
 }
 
-check_memory_available () {
-    echo_info skip
-    return 0
-    local _memory_available=$(cat /proc/meminfo | grep -i MemAvailable | awk '{print $2}')
-    echo -n "$((${_memory_available} / 1024)) MiB "
-    if [ "${_memory_available}" -lt $((1024 * 1024 * 4)) ]; then
-	echo_warning "not sufficient"
-    else
-	echo_info ok
-    fi
-}
-
 # make sure swap is off
 check_swap () {
     local _swap=$(cat /proc/meminfo | grep -i SwapTotal | awk '{print $2}')
@@ -174,7 +162,7 @@ check_disk () {
 
        sub(/[0-9]/, "", _dev);
        ("cat /sys/block/" _dev "/queue/rotational") | getline _rotational;
-       print "  " _partition, "of size\t" _size_inG  "_GB", "is mounted on", _mount_point;
+       print "  " _partition, "of size\t[" _size_inG  "GB]", "is mounted on", _mount_point;
        if (_size_inG < 200) {
            print YELLOW "    warning" NC ": insufficient disk space";
            print YELLOW "    warning" NC ": not suitable for deploying pd/tikv";
@@ -255,9 +243,6 @@ check_cpu
 
 echo -n "Total Memory  ... "
 check_memory_total
-
-echo -n "Available Memory  ... "
-check_memory_available
 
 echo -n "Swap off ... "
 check_swap

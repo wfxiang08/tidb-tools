@@ -21,7 +21,7 @@ NOTE: requires ``bash`` to run.
 ### How to use
 
 ```
-cd /path/to/tidb-tools/scripts
+cd ./tidb-tools/scripts
 chmod a+x ./checkenv.sh # make sure the script is executable
 ./checkenv.sh
 ```
