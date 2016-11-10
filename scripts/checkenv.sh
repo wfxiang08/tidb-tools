@@ -106,7 +106,7 @@ check_cpu () {
     _physicalNumber=$(grep "physical id" /proc/cpuinfo|sort -u|wc -l)
     _coreNumber=$(grep "cpu cores" /proc/cpuinfo|uniq|awk -F':' '{print $2}'|xargs)
     _HTNumber=$((_logicalNumber / (_physicalNumber * _coreNumber)))
-    if [ "${_logicalNumber}" -lt 2 -o "${_coreNumber}" -lt 2 ]; then
+    if [ "${_logicalNumber}" -lt 8 -o "${_coreNumber}" -lt 4 ]; then
 	echo_warning "cpu cores are not sufficient"
     else
 	echo_info ok
@@ -125,7 +125,7 @@ check_cpu () {
 check_memory_total () {
     local _memory_total=$(cat /proc/meminfo | grep -i MemTotal | awk '{print $2}')
     echo -n "$((${_memory_total} / 1000 / 1000)) GB "
-    if [ "${_memory_total}" -lt $((1000 * 1000 * 8)) ]; then
+    if [ "${_memory_total}" -lt $((1000 * 1000 * 16)) ]; then
 	echo_warning "not sufficient"
     else
 	echo_info ok
