@@ -38,15 +38,14 @@ CPU checking ... ok
   Physical CPU Number : 1
   CPU Core Number     : 4
   HT Number           : 2
-Total Memory  ... 15953 MiB ok
-Available Memory  ... skip
+Total Memory  ... 16 GB ok
 Swap off ... ok
 Checking disks ...
-  sda1 of size  228_GB is mounted on /
-    warning: mount options is (rw,errors=remount-ro), better add noatime/nodiratime for deploying pd/tikv
-  sdb1 of size  7452_GB is mounted on /data
+  sda1 of size  [228GB] is mounted on /
+    warning: mount options is (rw,errors=remount-ro), better add `noatime` for deploying pd/tikv
+  sdb1 of size  [7452GB] is mounted on /data
     warning: not an SSD device? not suitable for deploying tikv
-    warning: mount options is (rw), better add noatime/nodiratime for deploying pd/tikv
+    warning: mount options is (rw), better add `noatime` for deploying pd/tikv
 Checking net.core.somaxconn ... 32768 ok
 Checking net.ipv4.tcp_syncookies ... 0 ok
 Checking fs.file-max ... 65535 ok

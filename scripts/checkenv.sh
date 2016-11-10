@@ -84,9 +84,12 @@ check_kernel_version () {
     local _uname_r=$(uname -r)
     echo -n "${_uname_r} "
     case "${_uname_r}" in
-	2.6.*|3.*|4.*)
+        3.*|4.*)
 	    echo_info ok
 	    ;;
+        2.6.*)
+            echo_warning "outdated kernel version"
+            ;;
 	*)
 	    echo_warning "unsupported version"
 	    ;;
@@ -95,10 +98,10 @@ check_kernel_version () {
 
 ## CPU
 check_cpu () {
-    local physicalNumber=0
-    local coreNumber=0
-    local logicalNumber=0
-    local HTNumber=0
+    local _physicalNumber=0
+    local _coreNumber=0
+    local _logicalNumber=0
+    local _HTNumber=0
     _logicalNumber=$(grep "processor" /proc/cpuinfo|sort -u|wc -l)
     _physicalNumber=$(grep "physical id" /proc/cpuinfo|sort -u|wc -l)
     _coreNumber=$(grep "cpu cores" /proc/cpuinfo|uniq|awk -F':' '{print $2}'|xargs)
@@ -121,8 +124,8 @@ check_cpu () {
 # >= 8G
 check_memory_total () {
     local _memory_total=$(cat /proc/meminfo | grep -i MemTotal | awk '{print $2}')
-    echo -n "$((${_memory_total} / 1024)) MiB "
-    if [ "${_memory_total}" -lt $((1024 * 1024 * 8)) ]; then
+    echo -n "$((${_memory_total} / 1000 / 1000)) GB "
+    if [ "${_memory_total}" -lt $((1000 * 1000 * 8)) ]; then
 	echo_warning "not sufficient"
     else
 	echo_info ok
@@ -134,8 +137,7 @@ check_swap () {
     local _swap=$(cat /proc/meminfo | grep -i SwapTotal | awk '{print $2}')
     local _swappiness=$(cat /proc/sys/vm/swappiness)
     if [ "${_swap}" -ne 0 ]; then
-        echo
-	echo_warning "  swap is on"
+	echo_warning "\n  swap is on"
 	echo_warning "  use [sudo swapoff -a] to close swap"
         if [ ${_swappiness} -gt 20 ]; then
 	    echo_warning "  or tune [sys.vm.swappiness]"
@@ -171,7 +173,7 @@ check_disk () {
            print YELLOW "    warning" NC ": not an SSD device? not suitable for deploying tikv";
        }
        if (_options !~ /noatime/) {
-           print YELLOW "    warning" NC ": mount options is", _options ", better add noatime/nodiratime for deploying pd/tikv";
+           print YELLOW "    warning" NC ": mount options is", _options ", better add `noatime` for deploying pd/tikv";
        }
     }'
 }
