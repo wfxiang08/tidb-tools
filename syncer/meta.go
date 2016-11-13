@@ -38,7 +38,7 @@ type Meta interface {
 	Load() error
 
 	// Save saves meta information.
-	Save(pos mysql.Position) error
+	Save(pos mysql.Position, force bool) error
 
 	// Check checks whether we should save meta.
 	Check() bool
@@ -79,28 +79,30 @@ func (lm *LocalMeta) Load() error {
 }
 
 // Save implements Meta.Save interface.
-func (lm *LocalMeta) Save(pos mysql.Position) error {
+func (lm *LocalMeta) Save(pos mysql.Position, force bool) error {
 	lm.Lock()
 	defer lm.Unlock()
 
 	lm.BinLogName = pos.Name
 	lm.BinLogPos = pos.Pos
 
-	var buf bytes.Buffer
-	e := toml.NewEncoder(&buf)
-	err := e.Encode(lm)
-	if err != nil {
-		log.Errorf("syncer save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
-		return errors.Trace(err)
-	}
+	if force {
+		var buf bytes.Buffer
+		e := toml.NewEncoder(&buf)
+		err := e.Encode(lm)
+		if err != nil {
+			log.Errorf("syncer save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
+			return errors.Trace(err)
+		}
 
-	err = ioutil2.WriteFileAtomic(lm.name, buf.Bytes(), 0644)
-	if err != nil {
-		log.Errorf("syncer save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
-		return errors.Trace(err)
-	}
+		err = ioutil2.WriteFileAtomic(lm.name, buf.Bytes(), 0644)
+		if err != nil {
+			log.Errorf("syncer save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
+			return errors.Trace(err)
+		}
 
-	lm.saveTime = time.Now()
+		lm.saveTime = time.Now()
+	}
 	return nil
 }
 

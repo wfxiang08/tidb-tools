@@ -40,6 +40,7 @@ const (
 	update
 	del
 	ddl
+	xid
 )
 
 type job struct {
