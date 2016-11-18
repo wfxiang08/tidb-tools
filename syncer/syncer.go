@@ -16,6 +16,7 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +74,8 @@ type Syncer struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	reMap map[string]*regexp.Regexp
 }
 
 // NewSyncer creates a new Syncer.
@@ -90,6 +93,7 @@ func NewSyncer(cfg *Config) *Syncer {
 	syncer.jobs = newJobChans(cfg.WorkerCount)
 	syncer.tables = make(map[string]*table)
 	syncer.ctx, syncer.cancel = context.WithCancel(context.Background())
+	syncer.reMap = make(map[string]*regexp.Regexp)
 	return syncer
 }
 
@@ -150,9 +154,15 @@ func (s *Syncer) checkBinlogFormat() error {
 		)
 
 		err = rows.Scan(&variable, &value)
+
 		if err != nil {
 			return errors.Trace(err)
 		}
+
+		if variable == "binlog_format" && value != "ROW" {
+			log.Fatalf("We just support ROW event now")
+		}
+
 	}
 
 	if rows.Err() != nil {
@@ -463,7 +473,79 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 	}
 }
 
-func (s *Syncer) skip(sql string) bool {
+func (s *Syncer) matchDB(patternDBS []string, a string) bool {
+	for _, b := range patternDBS {
+		if s.matchString(b, a) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Syncer) matchString(pattern string, t string) bool {
+	if re, ok := s.reMap[pattern]; ok {
+		return re.MatchString(t)
+	}
+	return pattern == t
+}
+
+func (s Syncer) matchTable(patternTBS []TableName, tb TableName) bool {
+	for _, ptb := range patternTBS {
+		retb, oktb := s.reMap[ptb.Name]
+		redb, okdb := s.reMap[ptb.Schema]
+
+		if oktb && okdb {
+			if redb.MatchString(tb.Schema) && retb.MatchString(tb.Name) {
+				return true
+			}
+		}
+		if oktb {
+			if retb.MatchString(tb.Name) && tb.Schema == ptb.Schema {
+				return true
+			}
+		}
+		if okdb {
+			if redb.MatchString(tb.Schema) && tb.Name == ptb.Name {
+				return true
+			}
+		}
+
+		//create database or drop database
+		if tb.Name == "" {
+			if tb.Schema == ptb.Schema {
+				return true
+			}
+		}
+
+		if ptb == tb {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *Syncer) skipRowEvent(schema string, table string) bool {
+	if s.cfg.DoTable != nil || s.cfg.DoDB != nil {
+		table = strings.ToLower(table)
+		//if table in tartget Table, do this event
+		for _, d := range s.cfg.DoTable {
+			if s.matchString(d.Schema, schema) && s.matchString(d.Name, table) {
+				return false
+			}
+		}
+
+		//if schema in target DB, do this event
+		if s.matchDB(s.cfg.DoDB, schema) && len(s.cfg.DoDB) > 0 {
+			return false
+		}
+
+		return true
+	}
+	return false
+}
+
+func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 	sql = strings.ToUpper(sql)
 
 	if strings.HasPrefix(sql, "GRANT REPLICATION SLAVE ON") {
@@ -474,6 +556,30 @@ func (s *Syncer) skip(sql string) bool {
 		return true
 	}
 
+	return false
+}
+
+func (s *Syncer) skipQueryDDL(sql string, schema string) bool {
+	tb, err := parserDDLTableName(sql)
+	if err != nil {
+		log.Warnf("[get table failure]:%s %s", sql, err)
+	}
+
+	if err == nil && (s.cfg.DoTable != nil || s.cfg.DoDB != nil) {
+		//if table in target Table, do this sql
+		if tb.Schema == "" {
+			tb.Schema = schema
+		}
+		if s.matchTable(s.cfg.DoTable, tb) {
+			return false
+		}
+
+		// if  schema in target DB, do this sql
+		if s.matchDB(s.cfg.DoDB, tb.Schema) {
+			return false
+		}
+		return true
+	}
 	return false
 }
 
@@ -506,6 +612,9 @@ func (s *Syncer) run() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
+
+	// support regex
+	s.genRegexMap()
 
 	streamer, err := s.syncer.StartSync(s.meta.Pos())
 	if err != nil {
@@ -554,6 +663,10 @@ func (s *Syncer) run() error {
 			log.Infof("rotate binlog to %v", pos)
 		case *replication.RowsEvent:
 			table := &table{}
+			if s.skipRowEvent(string(ev.Table.Schema), string(ev.Table.Table)) {
+				log.Warnf("[skip RowsEvent]db:%s table:%s", ev.Table.Schema, ev.Table.Table)
+				continue
+			}
 			table, err = s.getTable(string(ev.Table.Schema), string(ev.Table.Table))
 			if err != nil {
 				return errors.Trace(err)
@@ -608,27 +721,35 @@ func (s *Syncer) run() error {
 		case *replication.QueryEvent:
 			ok := false
 			sql := string(ev.Query)
-			if s.skip(sql) {
-				log.Warnf("[skip sql]%s", sql)
+			if s.skipQueryEvent(sql, string(ev.Schema)) {
+				log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
 				continue
 			}
 
 			log.Debugf("[query]%s", sql)
 
-			ok, err = isDDLSQL(sql)
+			sqls, ok, err := resolveDDLSQL(sql)
 			if err != nil {
 				return errors.Errorf("parse query event failed: %v", err)
 			}
-			if ok {
-				lastPos := pos
-				pos.Pos = e.Header.LogPos
+			if !ok {
+				continue
+			}
+
+			lastPos := pos
+			pos.Pos = e.Header.LogPos
+			for _, sql := range sqls {
+				if s.skipQueryDDL(sql, string(ev.Schema)) {
+					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
+					continue
+				}
 
 				sql, err = genDDLSQL(sql, string(ev.Schema))
 				if err != nil {
 					return errors.Trace(err)
 				}
 
-				log.Infof("[ddl][start]%s[pos]%v[next pos]%v", sql, lastPos, pos)
+				log.Infof("[ddl][start]%s[pos]%v[next pos]%v[schema]%s", sql, lastPos, pos, string(ev.Schema))
 
 				job := newJob(ddl, sql, nil, "", false, pos)
 				err = s.addJob(job)
@@ -644,6 +765,30 @@ func (s *Syncer) run() error {
 			pos.Pos = e.Header.LogPos
 			job := newJob(xid, "", nil, "", false, pos)
 			s.addJob(job)
+		}
+	}
+}
+
+func (s *Syncer) genRegexMap() {
+	for _, db := range s.cfg.DoDB {
+		if db[0] != '~' {
+			continue
+		}
+		if _, ok := s.reMap[db]; !ok {
+			s.reMap[db] = regexp.MustCompile(db[1:])
+		}
+	}
+
+	for _, tb := range s.cfg.DoTable {
+		if tb.Name[0] == '~' {
+			if _, ok := s.reMap[tb.Name]; !ok {
+				s.reMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
+			}
+		}
+		if tb.Schema[0] == '~' {
+			if _, ok := s.reMap[tb.Schema]; !ok {
+				s.reMap[tb.Schema] = regexp.MustCompile(tb.Schema[1:])
+			}
 		}
 	}
 }

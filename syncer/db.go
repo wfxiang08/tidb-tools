@@ -372,18 +372,92 @@ func isDDLSQL(sql string) (bool, error) {
 	return isDDL, nil
 }
 
+// resolveDDLSQL resolve to one ddl sql
+// example: drop table test.a,test2.b -> drop table test.a; drop table test2.b;
+func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
+	stmt, err := parser.New().ParseOneStmt(sql, "", "")
+	if err != nil {
+		return nil, false, errors.Trace(err)
+	}
+
+	_, isDDL := stmt.(ast.DDLNode)
+	if !isDDL {
+		sqls = append(sqls, sql)
+		return
+	}
+
+	switch v := stmt.(type) {
+	case *ast.DropTableStmt:
+		var ex string
+		if v.IfExists {
+			ex = "if exists"
+		}
+		for _, t := range v.Tables {
+			var db string
+			if t.Schema.O != "" {
+				db = fmt.Sprintf("%s.", t.Schema.O)
+			}
+			s := fmt.Sprintf("drop table %s %s%s", ex, db, t.Name.L)
+			sqls = append(sqls, s)
+		}
+
+	default:
+		sqls = append(sqls, sql)
+	}
+	return sqls, true, nil
+}
+
 func genDDLSQL(sql string, schema string) (string, error) {
 	stmt, err := parser.New().ParseOneStmt(sql, "", "")
 	if err != nil {
 		return "", errors.Trace(err)
 	}
-
 	_, isCreateDatabase := stmt.(*ast.CreateDatabaseStmt)
 	if isCreateDatabase {
 		return fmt.Sprintf("%s;", sql), nil
 	}
+	if schema == "" {
+		return fmt.Sprintf("%s;", sql), nil
+	}
 
 	return fmt.Sprintf("use %s; %s;", schema, sql), nil
+}
+
+func genTableName(schema string, table string) TableName {
+	return TableName{Schema: schema, Name: table}
+
+}
+
+func parserDDLTableName(sql string) (TableName, error) {
+	stmt, err := parser.New().ParseOneStmt(sql, "", "")
+	if err != nil {
+		return TableName{}, errors.Trace(err)
+	}
+
+	var res TableName
+	switch v := stmt.(type) {
+	case *ast.CreateDatabaseStmt:
+		res = genTableName(v.Name, "")
+	case *ast.DropDatabaseStmt:
+		res = genTableName(v.Name, "")
+	case *ast.CreateIndexStmt:
+		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+	case *ast.CreateTableStmt:
+		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+	case *ast.DropIndexStmt:
+		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+	case *ast.TruncateTableStmt:
+		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+	case *ast.DropTableStmt:
+		if len(v.Tables) != 1 {
+			return res, errors.Errorf("may resovle DDL sql failed")
+		}
+		res = genTableName(v.Tables[0].Schema.O, v.Tables[0].Name.L)
+	default:
+		return res, errors.Errorf("unkown DDL type")
+	}
+
+	return res, nil
 }
 
 func querySQL(db *sql.DB, query string) (*sql.Rows, error) {

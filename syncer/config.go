@@ -16,6 +16,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/juju/errors"
@@ -51,6 +52,13 @@ type DBConfig struct {
 	Port int `toml:"port" json:"port"`
 }
 
+// TableName is the Table configuration
+// slave restrict replication to a given table
+type TableName struct {
+	Schema string `toml:"db-name" json:"db-name"`
+	Name   string `toml:"tbl-name" json:"tbl-name"`
+}
+
 func (c *DBConfig) String() string {
 	if c == nil {
 		return "<nil>"
@@ -77,6 +85,11 @@ type Config struct {
 	Batch int `toml:"batch" json:"batch"`
 
 	Meta string `toml:"meta" json:"meta"`
+
+	//Ref:http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-do-table
+	DoTable []TableName `toml:"replicate-do-table" json:"replicate-do-table"`
+
+	DoDB []string `toml:"replicate-do-db" json:"replicate-do-db"`
 
 	From DBConfig `toml:"from" json:"from"`
 
@@ -111,7 +124,16 @@ func (c *Config) Parse(arguments []string) error {
 		return errors.Errorf("'%s' is an invalid flag", c.FlagSet.Arg(0))
 	}
 
+	c.adjust()
+
 	return nil
+}
+
+func (c *Config) adjust() {
+	for i := 0; i < len(c.DoTable); i++ {
+		c.DoTable[i].Name = strings.ToLower(c.DoTable[i].Name)
+	}
+
 }
 
 func (c *Config) String() string {
