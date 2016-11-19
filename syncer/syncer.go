@@ -377,12 +377,12 @@ func (s *Syncer) addJob(job *job) error {
 	if job.tp == xid {
 		s.meta.Save(job.pos, false)
 		return nil
-	} else {
-		s.jobWg.Add(1)
-
-		idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
-		s.jobs[idx] <- job
 	}
+
+	s.jobWg.Add(1)
+
+	idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
+	s.jobs[idx] <- job
 
 	wait := s.checkWait(job)
 	if wait {
