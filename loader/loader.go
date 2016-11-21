@@ -70,6 +70,8 @@ type Loader struct {
 
 	closed sync2.AtomicBool
 
+	firstLoadFile bool
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -79,6 +81,7 @@ func NewLoader(cfg *Config) *Loader {
 	loader := new(Loader)
 	loader.cfg = cfg
 	loader.closed.Set(false)
+	loader.firstLoadFile = true
 	loader.meta = newLocalMeta(cfg.Meta)
 	loader.files = make(map[string]*btree.BTree)
 	loader.savedFiles = make(map[string]struct{})
@@ -281,8 +284,6 @@ func (l *Loader) runSchema(db *sql.DB, file string, schema string) error {
 				if err != nil {
 					return errors.Trace(err)
 				}
-
-				data = data[0:0]
 			}
 		}
 	}
@@ -336,7 +337,13 @@ func (l *Loader) runSQL(file string, schema string, table string) error {
 				}
 
 				for i := range fields {
-					sql := fmt.Sprintf("replace into %s.%s values (%s);", schema, table, fields[i])
+					var sql string
+					if l.firstLoadFile {
+						sql = fmt.Sprintf("insert ignore into %s.%s values (%s);", schema, table, fields[i])
+					} else {
+						sql = fmt.Sprintf("insert into %s.%s values (%s);", schema, table, fields[i])
+					}
+
 					job := newJob(sql)
 					l.addJob(job)
 					fmt.Printf("[run sql][%d]%s\n", i, sql)
@@ -454,9 +461,30 @@ func (l *Loader) run() error {
 					continue
 				}
 
+				// check if the table has uniq index, if not, we should truncate table first.
+				if l.firstLoadFile {
+					ok, err = checkTableUniqIndex(l.dbs[0], db, table)
+					if err != nil {
+						log.Fatalf("check table uniq index failed - %v", errors.ErrorStack(err))
+					}
+
+					if !ok {
+						err = truncateTable(l.dbs[0], db, table)
+						if err != nil {
+							log.Fatalf("truncate table failed - %s - %s - %v", db, table, errors.ErrorStack(err))
+						}
+
+						l.firstLoadFile = false
+					}
+				}
+
 				err := l.runSQL(sqlFile, db, table)
 				if err != nil {
 					log.Fatalf("run table data failed - %v", errors.ErrorStack(err))
+				}
+
+				if l.firstLoadFile {
+					l.firstLoadFile = false
 				}
 
 				l.jobWg.Wait()

@@ -26,6 +26,23 @@ import (
 
 var retryTimeout = 3 * time.Second
 
+func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
+	var (
+		err  error
+		rows *sql.Rows
+	)
+
+	log.Debugf("[query][sql]%s", query)
+
+	rows, err = db.Query(query)
+	if err != nil {
+		log.Errorf("query sql[%s] failed %v", query, errors.ErrorStack(err))
+		return nil, errors.Trace(err)
+	}
+
+	return rows, nil
+}
+
 func executeSQL(db *sql.DB, sqls []string, retry bool) error {
 	if len(sqls) == 0 {
 		return nil
@@ -85,6 +102,62 @@ LOOP:
 	return errors.Errorf("exec sqls[%v] failed", sqls)
 }
 
+func checkTableUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
+	if schema == "" || table == "" {
+		return false, errors.New("schema/table is empty")
+	}
+
+	query := fmt.Sprintf("show index from %s.%s", schema, table)
+	rows, err := querySQL(db, query)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+	defer rows.Close()
+
+	rowColumns, err := rows.Columns()
+	if err != nil {
+		return false, errors.Trace(err)
+	}
+
+	// Show an example.
+	/*
+		mysql> show index from test.t;
+		+-------+------------+----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+		| Table | Non_unique | Key_name | Seq_in_index | Column_name | Collation | Cardinality | Sub_part | Packed | Null | Index_type | Comment | Index_comment |
+		+-------+------------+----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+		| t     |          0 | PRIMARY  |            1 | a           | A         |           0 |     NULL | NULL   |      | BTREE      |         |               |
+		| t     |          0 | PRIMARY  |            2 | b           | A         |           0 |     NULL | NULL   |      | BTREE      |         |               |
+		| t     |          0 | ucd      |            1 | c           | A         |           0 |     NULL | NULL   | YES  | BTREE      |         |               |
+		| t     |          0 | ucd      |            2 | d           | A         |           0 |     NULL | NULL   | YES  | BTREE      |         |               |
+		+-------+------------+----------+--------------+-------------+-----------+-------------+----------+--------+------+------------+---------+---------------+
+	*/
+
+	for rows.Next() {
+		datas := make([]sql.RawBytes, len(rowColumns))
+		values := make([]interface{}, len(rowColumns))
+
+		for i := range values {
+			values[i] = &datas[i]
+		}
+
+		err = rows.Scan(values...)
+		if err != nil {
+			return false, errors.Trace(err)
+		}
+
+		nonUnique := string(datas[1])
+		if nonUnique == "0" {
+			return true, nil
+		}
+	}
+
+	if rows.Err() != nil {
+		return false, errors.Trace(rows.Err())
+	}
+
+	return false, nil
+}
+
 func checkAndGetTableName(stmt *ast.InsertStmt) (string, bool) {
 	ts, ok := stmt.Table.TableRefs.Left.(*ast.TableSource)
 	if !ok {
@@ -97,6 +170,21 @@ func checkAndGetTableName(stmt *ast.InsertStmt) (string, bool) {
 	}
 
 	return tn.Name.O, true
+}
+
+func truncateTable(db *sql.DB, schema string, table string) error {
+	if schema == "" || table == "" {
+		return errors.New("schema/table is empty")
+	}
+
+	query := fmt.Sprintf("truncate table %s.%s;", schema, table)
+	rows, err := querySQL(db, query)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer rows.Close()
+
+	return nil
 }
 
 func createDB(cfg DBConfig) (*sql.DB, error) {
