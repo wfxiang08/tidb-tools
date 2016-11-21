@@ -65,7 +65,7 @@ type Loader struct {
 	savedFiles   map[string]struct{}
 	skippedFiles map[string]struct{}
 
-	dbs []*sql.DB
+	conns []*sql.DB
 
 	jobs []chan *job
 
@@ -470,14 +470,14 @@ func (l *Loader) runSQLFile(file string, name string, schema string, table strin
 
 func (l *Loader) run() error {
 	var err error
-	l.dbs, err = createDBs(l.cfg.DB, l.cfg.Worker)
+	l.conns, err = createDBs(l.cfg.DB, l.cfg.Worker)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	l.wg.Add(l.cfg.Worker)
 	for i := 0; i < l.cfg.Worker; i++ {
-		go l.do(l.dbs[i], l.jobs[i])
+		go l.do(l.conns[i], l.jobs[i])
 	}
 
 	l.wg.Add(1)
@@ -487,7 +487,7 @@ func (l *Loader) run() error {
 		// run db schema sql
 		dbFile := fmt.Sprintf("%s/%s-schema-create.sql", l.cfg.Dir, db)
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
-		err = l.runSchema(l.dbs[0], dbFile, "")
+		err = l.runSchema(l.conns[0], dbFile, "")
 		if err != nil {
 			log.Warnf("run db schema failed - %v", errors.ErrorStack(err))
 		}
@@ -499,7 +499,7 @@ func (l *Loader) run() error {
 			// run table schema sql
 			tableFile := fmt.Sprintf("%s/%s.%s-schema.sql", l.cfg.Dir, db, table)
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
-			err := l.runSchema(l.dbs[0], tableFile, db)
+			err := l.runSchema(l.conns[0], tableFile, db)
 			if err != nil {
 				log.Warnf("run table schema failed - %v", errors.ErrorStack(err))
 			}
@@ -521,13 +521,13 @@ func (l *Loader) run() error {
 
 				// check if the table has uniq index, if not, we should truncate table first.
 				if l.firstLoadFile {
-					ok, err = checkTableUniqIndex(l.dbs[0], db, table)
+					ok, err = checkTableUniqIndex(l.conns[0], db, table)
 					if err != nil {
 						log.Fatalf("check table uniq index failed - %v", errors.ErrorStack(err))
 					}
 
 					if !ok {
-						err = truncateTable(l.dbs[0], db, table)
+						err = truncateTable(l.conns[0], db, table)
 						if err != nil {
 							log.Fatalf("truncate table failed - %s - %s - %v", db, table, errors.ErrorStack(err))
 						}
@@ -595,7 +595,7 @@ func (l *Loader) Close() {
 
 	l.wg.Wait()
 
-	closeDBs(l.dbs...)
+	closeDBs(l.conns...)
 
 	l.closed.Set(true)
 }
