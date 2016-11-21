@@ -489,7 +489,7 @@ func (s *Syncer) matchString(pattern string, t string) bool {
 	return pattern == t
 }
 
-func (s Syncer) matchTable(patternTBS []TableName, tb TableName) bool {
+func (s *Syncer) matchTable(patternTBS []TableName, tb TableName) bool {
 	for _, ptb := range patternTBS {
 		retb, oktb := s.reMap[ptb.Name]
 		redb, okdb := s.reMap[ptb.Schema]

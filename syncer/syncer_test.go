@@ -18,13 +18,12 @@ import (
 	"fmt"
 	"testing"
 
-	"golang.org/x/net/context"
-
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/ngaut/log"
 	. "github.com/pingcap/check"
 	gmysql "github.com/siddontang/go-mysql/mysql"
 	"github.com/siddontang/go-mysql/replication"
+	"golang.org/x/net/context"
 )
 
 var _ = Suite(&testSyncerSuite{})
@@ -129,8 +128,8 @@ func (s *testSyncerSuite) TestSelectDB(c *C) {
 func (s *testSyncerSuite) TestSelectTable(c *C) {
 	s.cfg.DoDB = []string{"t2"}
 	s.cfg.DoTable = []TableName{
-		TableName{Schema: "stest", Name: "log"},
-		TableName{Schema: "stest", Name: "~^t.*"},
+		{Schema: "stest", Name: "log"},
+		{Schema: "stest", Name: "~^t.*"},
 	}
 	sqls := []string{
 		"create database s1",
