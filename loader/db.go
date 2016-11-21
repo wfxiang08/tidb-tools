@@ -184,6 +184,8 @@ func truncateTable(db *sql.DB, schema string, table string) error {
 	}
 	defer rows.Close()
 
+	log.Info(query)
+
 	return nil
 }
 

@@ -62,7 +62,8 @@ type Loader struct {
 
 	files map[string]*btree.BTree
 
-	savedFiles map[string]struct{}
+	savedFiles   map[string]struct{}
+	skippedFiles map[string]struct{}
 
 	dbs []*sql.DB
 
@@ -85,6 +86,7 @@ func NewLoader(cfg *Config) *Loader {
 	loader.meta = newLocalMeta(cfg.Meta)
 	loader.files = make(map[string]*btree.BTree)
 	loader.savedFiles = make(map[string]struct{})
+	loader.skippedFiles = make(map[string]struct{})
 	loader.jobs = newJobChans(cfg.Worker)
 	loader.ctx, loader.cancel = context.WithCancel(context.Background())
 	return loader
@@ -138,7 +140,7 @@ func (l *Loader) Start() error {
 	// mydumper file names format
 	// db -> {db}-schema-create.sql
 	// table -> {db}.{table}-schema.sql
-	// sql -> {db}.{table}.sql
+	// sql -> {db}.{table}.{index}.sql or {db}.{table}.sql
 
 	usedFiles := make(map[string]struct{})
 
@@ -159,29 +161,31 @@ func (l *Loader) Start() error {
 			continue
 		}
 
-		idx := strings.Index(file, "-schema.sql")
-		if idx > 0 {
-			name := file[:idx]
-			fields := strings.Split(name, ".")
-			if len(fields) < 2 {
-				log.Warnf("invalid db table schema file - %s", file)
-				continue
-			}
-
-			db, table := fields[0], fields[1]
-			tables, ok := l.files[db]
-			if !ok {
-				return errors.Errorf("invalid db table schema file, cannot find db - %s", file)
-			}
-
-			it := &item{key: table}
-			rit := tables.ReplaceOrInsert(it)
-			if rit != nil {
-				return errors.Errorf("invalid db table schema file, duplicated item - %s", file)
-			}
-
-			usedFiles[file] = struct{}{}
+		if !strings.HasSuffix(file, "-schema.sql") {
+			continue
 		}
+
+		idx := strings.Index(file, "-schema.sql")
+		name := file[:idx]
+		fields := strings.Split(name, ".")
+		if len(fields) < 2 {
+			log.Warnf("invalid db table schema file - %s", file)
+			continue
+		}
+
+		db, table := fields[0], fields[1]
+		tables, ok := l.files[db]
+		if !ok {
+			return errors.Errorf("invalid db table schema file, cannot find db - %s", file)
+		}
+
+		it := &item{key: table}
+		rit := tables.ReplaceOrInsert(it)
+		if rit != nil {
+			return errors.Errorf("invalid db table schema file, duplicated item - %s", file)
+		}
+
+		usedFiles[file] = struct{}{}
 	}
 
 	// scan db table schema files
@@ -191,30 +195,32 @@ func (l *Loader) Start() error {
 			continue
 		}
 
-		idx := strings.Index(file, ".sql")
-		if idx > 0 {
-			name := file[:idx]
-			fields := strings.Split(name, ".")
-			if len(fields) != 2 && len(fields) != 3 {
-				log.Warnf("invalid db table sql file - %s", file)
-				continue
-			}
-
-			db, table := fields[0], fields[1]
-			tables, ok := l.files[db]
-			if !ok {
-				return errors.Errorf("invalid db table sql file, cannot find db - %s", file)
-			}
-
-			key := &item{key: table}
-			it := tables.Get(key)
-			if it == nil {
-				return errors.Errorf("invalid db table sql file, cannot find table - %s", file)
-			}
-
-			it.(*item).values = append(it.(*item).values, file)
-			usedFiles[file] = struct{}{}
+		if !strings.HasSuffix(file, ".sql") {
+			continue
 		}
+
+		idx := strings.Index(file, ".sql")
+		name := file[:idx]
+		fields := strings.Split(name, ".")
+		if len(fields) != 2 && len(fields) != 3 {
+			log.Warnf("invalid db table sql file - %s", file)
+			continue
+		}
+
+		db, table := fields[0], fields[1]
+		tables, ok := l.files[db]
+		if !ok {
+			return errors.Errorf("invalid db table sql file, cannot find db - %s", file)
+		}
+
+		key := &item{key: table}
+		it := tables.Get(key)
+		if it == nil {
+			return errors.Errorf("invalid db table sql file, cannot find table - %s", file)
+		}
+
+		it.(*item).values = append(it.(*item).values, file)
+		usedFiles[file] = struct{}{}
 	}
 
 	log.Infof("[files]\n%s", l.contentFiles())
@@ -410,6 +416,58 @@ func (l *Loader) do(db *sql.DB, jobChan chan *job) {
 	}
 }
 
+func (l *Loader) redoSkippedFiles(schema string, table string) error {
+	for file := range l.skippedFiles {
+		// sql -> {db}.{table}.{index}.sql or {db}.{table}.sql
+		if !strings.HasSuffix(file, ".sql") {
+			continue
+		}
+
+		fields := strings.Split(file, ".")
+		if len(fields) < 3 {
+			continue
+		}
+
+		if fields[0] != schema || fields[1] != table {
+			continue
+		}
+
+		sqlFile := fmt.Sprintf("%s/%s", l.cfg.Dir, file)
+
+		log.Infof("[loader][redo table data sql]%s[start]", sqlFile)
+
+		err := l.runSQLFile(sqlFile, file, schema, table)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		log.Infof("[loader][redo table data sql]%s[end]", sqlFile)
+	}
+
+	return nil
+}
+
+func (l *Loader) runSQLFile(file string, name string, schema string, table string) error {
+	log.Infof("[loader][run table data sql]%s[start]", file)
+
+	err := l.runSQL(file, schema, table)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	l.jobWg.Wait()
+
+	err = l.meta.save(name)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	log.Infof("[loader][save meta]%s", l.meta)
+
+	log.Infof("[loader][run table data sql]%s[end]", file)
+	return nil
+}
+
 func (l *Loader) run() error {
 	var err error
 	l.dbs, err = createDBs(l.cfg.DB, l.cfg.Worker)
@@ -453,10 +511,10 @@ func (l *Loader) run() error {
 			for _, sql := range sqls {
 				// run table data sql
 				sqlFile := fmt.Sprintf("%s/%s", l.cfg.Dir, sql)
-				log.Infof("[loader][run table data sql]%s[start]", sqlFile)
 
 				_, ok := l.savedFiles[sql]
 				if ok {
+					l.skippedFiles[sql] = struct{}{}
 					log.Infof("[loader][already in saves files, skip]%s", sql)
 					continue
 				}
@@ -475,28 +533,23 @@ func (l *Loader) run() error {
 						}
 
 						l.firstLoadFile = false
+
+						// We should redo truncated table sql files in saved map.
+						err = l.redoSkippedFiles(db, table)
+						if err != nil {
+							log.Fatalf("redo skipped files failed - %v", errors.ErrorStack(err))
+						}
 					}
 				}
 
-				err := l.runSQL(sqlFile, db, table)
+				err = l.runSQLFile(sqlFile, sql, db, table)
 				if err != nil {
-					log.Fatalf("run table data failed - %v", errors.ErrorStack(err))
+					log.Fatalf("run sql file failed - %v", errors.ErrorStack(err))
 				}
 
 				if l.firstLoadFile {
 					l.firstLoadFile = false
 				}
-
-				l.jobWg.Wait()
-
-				err = l.meta.save(sql)
-				if err != nil {
-					log.Fatalf("save meta failed - %v", errors.ErrorStack(err))
-				}
-
-				log.Infof("[loader][save meta]%s", l.meta)
-
-				log.Infof("[loader][run table data sql]%s[end]", sqlFile)
 			}
 
 			return true
