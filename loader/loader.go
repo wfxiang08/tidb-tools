@@ -199,6 +199,12 @@ func (l *Loader) Start() error {
 			continue
 		}
 
+		// ignore view / triggers
+		if strings.Index(file, "-schema-view.sql") > 0 || strings.Index(file, "-schema-triggers.sql") > 0 ||
+			strings.Index(file, "-schema-post.sql") > 0 {
+			continue
+		}
+
 		idx := strings.Index(file, ".sql")
 		name := file[:idx]
 		fields := strings.Split(name, ".")
