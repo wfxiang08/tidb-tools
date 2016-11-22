@@ -55,15 +55,15 @@ type Loader struct {
 
 	cfg *Config
 
-	meta *LocalMeta
+	checkPoint *CheckPoint
 
 	wg    sync.WaitGroup
 	jobWg sync.WaitGroup
 
 	files map[string]*btree.BTree
 
-	savedFiles   map[string]struct{}
-	skippedFiles map[string]struct{}
+	restoredFiles map[string]struct{}
+	skippedFiles  map[string]struct{}
 
 	conns []*sql.DB
 
@@ -71,10 +71,9 @@ type Loader struct {
 
 	closed sync2.AtomicBool
 
-	firstLoadFile bool
-
-	ctx    context.Context
-	cancel context.CancelFunc
+	loadFromCheckpoint bool
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 // NewLoader creates a new Loader.
@@ -82,10 +81,10 @@ func NewLoader(cfg *Config) *Loader {
 	loader := new(Loader)
 	loader.cfg = cfg
 	loader.closed.Set(false)
-	loader.firstLoadFile = true
-	loader.meta = newLocalMeta(cfg.Meta)
+	loader.checkPoint = newCheckPoint(cfg.CheckPoint)
+	loader.loadFromCheckpoint = loader.checkPoint.IsLoadFromLastCheckPoint()
 	loader.files = make(map[string]*btree.BTree)
-	loader.savedFiles = make(map[string]struct{})
+	loader.restoredFiles = loader.checkPoint.Dump()
 	loader.skippedFiles = make(map[string]struct{})
 	loader.jobs = newJobChans(cfg.Worker)
 	loader.ctx, loader.cancel = context.WithCancel(context.Background())
@@ -123,15 +122,28 @@ func (l *Loader) contentFiles() string {
 	return string(content)
 }
 
-// Start starts Loader.
-func (l *Loader) Start() error {
+// Start to restore.
+func (l *Loader) Restore() error {
+	if err := l.scanDir(l.cfg.Dir); err != nil {
+		log.Errorf("[loader] scan dir[%s] failed, err[%v]", l.cfg.Dir, err)
+		return errors.Trace(err)
+	}
+
+	if err := l.restoreData(); err != nil {
+		return errors.Trace(err)
+	}
+
+	return nil
+}
+
+func (l *Loader) scanDir(dir string) error {
 	// check if mydumper dir data exists.
-	if !IsDirExists(l.cfg.Dir) {
+	if !IsDirExists(dir) {
 		return errors.New("empty mydumper dir")
 	}
 
 	// collect dir files.
-	files := GetDirFiles(l.cfg.Dir)
+	files := CollectDirFiles(l.cfg.Dir)
 	_, ok := files["metadata"]
 	if !ok {
 		return errors.New("invalid mydumper dir, none metadata exists")
@@ -144,7 +156,7 @@ func (l *Loader) Start() error {
 
 	usedFiles := make(map[string]struct{})
 
-	// scan db schema files
+	// Sql file for create db
 	for file, _ := range files {
 		idx := strings.Index(file, "-schema-create.sql")
 		if idx > 0 {
@@ -154,7 +166,7 @@ func (l *Loader) Start() error {
 		}
 	}
 
-	// scan db table schema files
+	// Sql file for create table
 	for file, _ := range files {
 		_, ok := usedFiles[file]
 		if ok {
@@ -168,7 +180,7 @@ func (l *Loader) Start() error {
 		idx := strings.Index(file, "-schema.sql")
 		name := file[:idx]
 		fields := strings.Split(name, ".")
-		if len(fields) < 2 {
+		if len(fields) != 2 {
 			log.Warnf("invalid db table schema file - %s", file)
 			continue
 		}
@@ -201,7 +213,7 @@ func (l *Loader) Start() error {
 
 		// ignore view / triggers
 		if strings.Index(file, "-schema-view.sql") > 0 || strings.Index(file, "-schema-triggers.sql") > 0 ||
-			strings.Index(file, "-schema-post.sql") > 0 {
+		strings.Index(file, "-schema-post.sql") > 0 {
 			continue
 		}
 
@@ -229,22 +241,8 @@ func (l *Loader) Start() error {
 		usedFiles[file] = struct{}{}
 	}
 
-	log.Infof("[files]\n%s", l.contentFiles())
-
 	if len(l.files) == 0 {
 		return errors.New("invalid mydumper files")
-	}
-
-	err := l.meta.load()
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	l.savedFiles = l.meta.dump()
-
-	err = l.run()
-	if err != nil {
-		return errors.Trace(err)
 	}
 
 	return nil
@@ -350,7 +348,7 @@ func (l *Loader) runSQL(file string, schema string, table string) error {
 
 				for i := range fields {
 					var sql string
-					if l.firstLoadFile {
+					if l.loadFromCheckpoint {
 						sql = fmt.Sprintf("insert ignore into %s.%s values (%s);", schema, table, fields[i])
 					} else {
 						sql = fmt.Sprintf("insert into %s.%s values (%s);", schema, table, fields[i])
@@ -454,7 +452,7 @@ func (l *Loader) redoSkippedFiles(schema string, table string) error {
 }
 
 func (l *Loader) runSQLFile(file string, name string, schema string, table string) error {
-	log.Infof("[loader][run table data sql]%s[start]", file)
+	log.Infof("[loader][restore table data sql]%s[start]", file)
 
 	err := l.runSQL(file, schema, table)
 	if err != nil {
@@ -463,20 +461,19 @@ func (l *Loader) runSQLFile(file string, name string, schema string, table strin
 
 	l.jobWg.Wait()
 
-	err = l.meta.save(name)
+	err = l.checkPoint.Save(name)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	log.Infof("[loader][save meta]%s", l.meta)
-
-	log.Infof("[loader][run table data sql]%s[end]", file)
+	log.Infof("[loader][saved to checkpoint]")
+	log.Infof("[loader][restore table data sql]%s[finished]", file)
 	return nil
 }
 
-func (l *Loader) run() error {
+func (l *Loader) restoreData() error {
 	var err error
-	l.conns, err = createDBs(l.cfg.DB, l.cfg.Worker)
+	l.conns, err = connectToDB(l.cfg.DB, l.cfg.Worker)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -511,10 +508,10 @@ func (l *Loader) run() error {
 			}
 			log.Infof("[loader][run table schema]%s[end]", tableFile)
 
-			sqls := i.(*item).values
-			sort.Strings(sqls)
+			sql_files := i.(*item).values
+			sort.Strings(sql_files)
 
-			for _, sql := range sqls {
+			for _, sql := range sql_files {
 				// run table data sql
 				sqlFile := fmt.Sprintf("%s/%s", l.cfg.Dir, sql)
 
@@ -526,7 +523,7 @@ func (l *Loader) run() error {
 				}
 
 				// check if the table has uniq index, if not, we should truncate table first.
-				if l.firstLoadFile {
+				if l.loadFromCheckpoint {
 					ok, err = checkTableUniqIndex(l.conns[0], db, table)
 					if err != nil {
 						log.Fatalf("check table uniq index failed - %v", errors.ErrorStack(err))
@@ -538,7 +535,7 @@ func (l *Loader) run() error {
 							log.Fatalf("truncate table failed - %s - %s - %v", db, table, errors.ErrorStack(err))
 						}
 
-						l.firstLoadFile = false
+						l.loadFromCheckpoint = false
 
 						// We should redo truncated table sql files in saved map.
 						err = l.redoSkippedFiles(db, table)
@@ -553,8 +550,8 @@ func (l *Loader) run() error {
 					log.Fatalf("run sql file failed - %v", errors.ErrorStack(err))
 				}
 
-				if l.firstLoadFile {
-					l.firstLoadFile = false
+				if l.loadFromCheckpoint {
+					l.loadFromCheckpoint = false
 				}
 			}
 

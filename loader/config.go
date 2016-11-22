@@ -37,7 +37,7 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.DB.Password, "p", "", "User password")
 	fs.IntVar(&cfg.DB.Port, "P", 4000, "TCP/IP port to connect to")
 
-	fs.StringVar(&cfg.Meta, "meta", "loader.meta", "loader saved meta info")
+	fs.StringVar(&cfg.CheckPoint, "checkpoint", "loader.checkpoint", "store files that has restored")
 
 	fs.StringVar(&cfg.PprofAddr, "pprof-addr", ":10084", "Loader pprof addr")
 	fs.StringVar(&cfg.LogLevel, "L", "info", "Loader log level: debug, info, warn, error, fatal")
@@ -79,7 +79,7 @@ type Config struct {
 
 	Dir string `toml:"dir" json:"dir"`
 
-	Meta string `toml:"meta" json:"meta"`
+	CheckPoint string `toml:"checkpoint" json:"checkpoint"`
 
 	DB DBConfig `toml:"db" json:"db"`
 

@@ -68,8 +68,9 @@ func main() {
 		}
 	}()
 
-	err = loader.Start()
-	if err != nil {
-		log.Error(errors.ErrorStack(err))
+	if err := loader.Restore(); err != nil {
+		log.Fatal(errors.ErrorStack(err))
 	}
+
+	log.Infof("[loader] all data has restored")
 }

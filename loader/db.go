@@ -207,7 +207,7 @@ func closeDB(db *sql.DB) error {
 	return errors.Trace(db.Close())
 }
 
-func createDBs(cfg DBConfig, count int) ([]*sql.DB, error) {
+func connectToDB(cfg DBConfig, count int) ([]*sql.DB, error) {
 	dbs := make([]*sql.DB, 0, count)
 	for i := 0; i < count; i++ {
 		db, err := createDB(cfg)
