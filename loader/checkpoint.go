@@ -26,21 +26,21 @@ import (
 
 type CheckPoint struct {
 	sync.RWMutex
-	path string
-	restoredFiles map[string]struct{}
-	loadFromLastCheckPoint bool
+	path                      string
+	restoredFiles             map[string]struct{}
+	restoreFromLastCheckPoint bool
 }
 
 func newCheckPoint(filename string) *CheckPoint {
-	cp := &CheckPoint{path: filename, loadFromLastCheckPoint: false}
+	cp := &CheckPoint{path: filename, restoreFromLastCheckPoint: false}
 	if err := cp.load(); err != nil {
 		panic(fmt.Sprintf("recover from check point failed, %v", err))
 	}
 	return cp
 }
 
-func (cp *CheckPoint) IsLoadFromLastCheckPoint() bool {
-	return cp.loadFromLastCheckPoint
+func (cp *CheckPoint) IsRestoreFromLastCheckPoint() bool {
+	return cp.restoreFromLastCheckPoint
 }
 
 func (cp *CheckPoint) load() error {
@@ -53,7 +53,7 @@ func (cp *CheckPoint) load() error {
 	}
 	defer f.Close()
 
-	cp.loadFromLastCheckPoint = true
+	cp.restoreFromLastCheckPoint = true
 	br := bufio.NewReader(f)
 	for {
 		line, err := br.ReadString('\n')

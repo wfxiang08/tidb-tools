@@ -24,9 +24,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/google/btree"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	tidb "github.com/pingcap/tidb/mysql"
 	"github.com/siddontang/go/sync2"
 	"golang.org/x/net/context"
 )
@@ -71,9 +73,10 @@ type Loader struct {
 
 	closed sync2.AtomicBool
 
-	loadFromCheckpoint bool
-	ctx                context.Context
-	cancel             context.CancelFunc
+	firstFileAfterCheckpoint          bool
+	restoreFromCheckpoint bool
+	ctx                   context.Context
+	cancel                context.CancelFunc
 }
 
 // NewLoader creates a new Loader.
@@ -82,7 +85,8 @@ func NewLoader(cfg *Config) *Loader {
 	loader.cfg = cfg
 	loader.closed.Set(false)
 	loader.checkPoint = newCheckPoint(cfg.CheckPoint)
-	loader.loadFromCheckpoint = loader.checkPoint.IsLoadFromLastCheckPoint()
+	loader.firstFileAfterCheckpoint = false
+	loader.restoreFromCheckpoint = loader.checkPoint.IsRestoreFromLastCheckPoint()
 	loader.files = make(map[string]*btree.BTree)
 	loader.restoredFiles = loader.checkPoint.Dump()
 	loader.skippedFiles = make(map[string]struct{})
@@ -124,7 +128,7 @@ func (l *Loader) contentFiles() string {
 
 // Start to restore.
 func (l *Loader) Restore() error {
-	if err := l.scanDir(l.cfg.Dir); err != nil {
+	if err := l.prepare(); err != nil {
 		log.Errorf("[loader] scan dir[%s] failed, err[%v]", l.cfg.Dir, err)
 		return errors.Trace(err)
 	}
@@ -136,9 +140,9 @@ func (l *Loader) Restore() error {
 	return nil
 }
 
-func (l *Loader) scanDir(dir string) error {
+func (l *Loader) prepare() error {
 	// check if mydumper dir data exists.
-	if !IsDirExists(dir) {
+	if !IsDirExists(l.cfg.Dir) {
 		return errors.New("empty mydumper dir")
 	}
 
@@ -149,10 +153,11 @@ func (l *Loader) scanDir(dir string) error {
 		return errors.New("invalid mydumper dir, none metadata exists")
 	}
 
-	// mydumper file names format
-	// db -> {db}-schema-create.sql
-	// table -> {db}.{table}-schema.sql
-	// sql -> {db}.{table}.{index}.sql or {db}.{table}.sql
+	/* Mydumper file names format
+	 * db    {db}-schema-create.sql
+	 * table {db}.{table}-schema.sql
+	 * sql   {db}.{table}.{part}.sql or {db}.{table}.sql
+	 */
 
 	usedFiles := make(map[string]struct{})
 
@@ -169,11 +174,7 @@ func (l *Loader) scanDir(dir string) error {
 	// Sql file for create table
 	for file, _ := range files {
 		_, ok := usedFiles[file]
-		if ok {
-			continue
-		}
-
-		if !strings.HasSuffix(file, "-schema.sql") {
+		if ok || !strings.HasSuffix(file, "-schema.sql") {
 			continue
 		}
 
@@ -181,39 +182,35 @@ func (l *Loader) scanDir(dir string) error {
 		name := file[:idx]
 		fields := strings.Split(name, ".")
 		if len(fields) != 2 {
-			log.Warnf("invalid db table schema file - %s", file)
+			log.Warnf("invalid table schema file - %s", file)
 			continue
 		}
 
 		db, table := fields[0], fields[1]
 		tables, ok := l.files[db]
 		if !ok {
-			return errors.Errorf("invalid db table schema file, cannot find db - %s", file)
+			return errors.Errorf("invalid table schema file, cannot find db - %s", file)
 		}
 
 		it := &item{key: table}
 		rit := tables.ReplaceOrInsert(it)
 		if rit != nil {
-			return errors.Errorf("invalid db table schema file, duplicated item - %s", file)
+			return errors.Errorf("invalid table schema file, duplicated item - %s", file)
 		}
 
 		usedFiles[file] = struct{}{}
 	}
 
-	// scan db table schema files
+	// Sql file for restore data
 	for file, _ := range files {
 		_, ok := usedFiles[file]
-		if ok {
-			continue
-		}
-
-		if !strings.HasSuffix(file, ".sql") {
+		if ok || !strings.HasSuffix(file, ".sql") {
 			continue
 		}
 
 		// ignore view / triggers
-		if strings.Index(file, "-schema-view.sql") > 0 || strings.Index(file, "-schema-triggers.sql") > 0 ||
-		strings.Index(file, "-schema-post.sql") > 0 {
+		if strings.Index(file, "-schema-view.sql") >= 0 || strings.Index(file, "-schema-triggers.sql") >= 0 ||
+			strings.Index(file, "-schema-post.sql") >= 0 {
 			continue
 		}
 
@@ -228,13 +225,13 @@ func (l *Loader) scanDir(dir string) error {
 		db, table := fields[0], fields[1]
 		tables, ok := l.files[db]
 		if !ok {
-			return errors.Errorf("invalid db table sql file, cannot find db - %s", file)
+			return errors.Errorf("invalid data sql file, cannot find db - %s", file)
 		}
 
 		key := &item{key: table}
 		it := tables.Get(key)
 		if it == nil {
-			return errors.Errorf("invalid db table sql file, cannot find table - %s", file)
+			return errors.Errorf("invalid data sql file, cannot find table - %s", file)
 		}
 
 		it.(*item).values = append(it.(*item).values, file)
@@ -301,7 +298,7 @@ func (l *Loader) runSchema(db *sql.DB, file string, schema string) error {
 	return nil
 }
 
-func (l *Loader) runSQL(file string, schema string, table string) error {
+func (l *Loader) dispatchSQL(file string, schema string, table string, checkExist bool) error {
 	f, err := os.Open(file)
 	if err != nil {
 		return errors.Trace(err)
@@ -348,7 +345,7 @@ func (l *Loader) runSQL(file string, schema string, table string) error {
 
 				for i := range fields {
 					var sql string
-					if l.loadFromCheckpoint {
+					if checkExist {
 						sql = fmt.Sprintf("insert ignore into %s.%s values (%s);", schema, table, fields[i])
 					} else {
 						sql = fmt.Sprintf("insert into %s.%s values (%s);", schema, table, fields[i])
@@ -368,9 +365,9 @@ func (l *Loader) runSQL(file string, schema string, table string) error {
 func (l *Loader) do(db *sql.DB, jobChan chan *job) {
 	defer l.wg.Done()
 
-	idx := 0
-	count := l.cfg.Batch
-	sqls := make([]string, 0, count)
+	count := 0
+	batchSize := l.cfg.Batch
+	sqls := make([]string, 0, batchSize)
 	lastSyncTime := time.Now()
 
 	var err error
@@ -378,13 +375,14 @@ func (l *Loader) do(db *sql.DB, jobChan chan *job) {
 		select {
 		case job, ok := <-jobChan:
 			if !ok {
+				log.Infof("[loader] worker exit")
 				return
 			}
 
-			idx++
+			count++
 			sqls = append(sqls, job.sql)
 
-			if idx >= count {
+			if count >= batchSize {
 				err = executeSQL(db, sqls, true)
 				if err != nil {
 					log.Fatalf(errors.ErrorStack(err))
@@ -394,7 +392,7 @@ func (l *Loader) do(db *sql.DB, jobChan chan *job) {
 					l.jobWg.Done()
 				}
 
-				idx = 0
+				count = 0
 				sqls = sqls[0:0]
 				lastSyncTime = time.Now()
 			}
@@ -410,7 +408,7 @@ func (l *Loader) do(db *sql.DB, jobChan chan *job) {
 					l.jobWg.Done()
 				}
 
-				idx = 0
+				count = 0
 				sqls = sqls[0:0]
 				lastSyncTime = now
 			}
@@ -440,7 +438,7 @@ func (l *Loader) redoSkippedFiles(schema string, table string) error {
 
 		log.Infof("[loader][redo table data sql]%s[start]", sqlFile)
 
-		err := l.runSQLFile(sqlFile, file, schema, table)
+		err := l.restoreDataFile(sqlFile, file, schema, table, false)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -451,23 +449,23 @@ func (l *Loader) redoSkippedFiles(schema string, table string) error {
 	return nil
 }
 
-func (l *Loader) runSQLFile(file string, name string, schema string, table string) error {
-	log.Infof("[loader][restore table data sql]%s[start]", file)
+func (l *Loader) restoreDataFile(abDataFile string, dataFile string, schema string, table string, checkExist bool) error {
+	log.Infof("[loader][restore table data sql]%s[start]", abDataFile)
 
-	err := l.runSQL(file, schema, table)
+	err := l.dispatchSQL(abDataFile, schema, table, checkExist)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	l.jobWg.Wait()
 
-	err = l.checkPoint.Save(name)
+	err = l.checkPoint.Save(dataFile)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	log.Infof("[loader][saved to checkpoint]")
-	log.Infof("[loader][restore table data sql]%s[finished]", file)
+	log.Infof("[loader][restore table data sql]%s[finished]", abDataFile)
 	return nil
 }
 
@@ -483,11 +481,8 @@ func (l *Loader) restoreData() error {
 		go l.do(l.conns[i], l.jobs[i])
 	}
 
-	l.wg.Add(1)
-	go l.printStatus()
-
 	for db, tables := range l.files {
-		// run db schema sql
+		// create db
 		dbFile := fmt.Sprintf("%s/%s-schema-create.sql", l.cfg.Dir, db)
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
 		err = l.runSchema(l.conns[0], dbFile, "")
@@ -499,84 +494,76 @@ func (l *Loader) restoreData() error {
 		tables.Ascend(func(i btree.Item) bool {
 			table := i.(*item).key
 
-			// run table schema sql
+			// create table
 			tableFile := fmt.Sprintf("%s/%s.%s-schema.sql", l.cfg.Dir, db, table)
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
 			err := l.runSchema(l.conns[0], tableFile, db)
 			if err != nil {
 				log.Warnf("run table schema failed - %v", errors.ErrorStack(err))
+
+				if !l.restoreFromCheckpoint && err.(*mysql.MySQLError).Number == tidb.ErrTableExists {
+					l.restoreFromCheckpoint = true
+				}
 			}
 			log.Infof("[loader][run table schema]%s[end]", tableFile)
 
-			sql_files := i.(*item).values
-			sort.Strings(sql_files)
+			dataFiles := i.(*item).values
+			sort.Strings(dataFiles)
 
-			for _, sql := range sql_files {
-				// run table data sql
-				sqlFile := fmt.Sprintf("%s/%s", l.cfg.Dir, sql)
+			// restore data for this table
+			for _, dataFile := range dataFiles {
+				abDataFile := fmt.Sprintf("%s/%s", l.cfg.Dir, dataFile)
 
-				_, ok := l.savedFiles[sql]
+				_, ok := l.restoredFiles[dataFile]
 				if ok {
-					l.skippedFiles[sql] = struct{}{}
-					log.Infof("[loader][already in saves files, skip]%s", sql)
+					l.skippedFiles[dataFile] = struct{}{}
+					log.Infof("[loader][already in saves files, skip]%s", dataFile)
 					continue
 				}
 
-				// check if the table has uniq index, if not, we should truncate table first.
-				if l.loadFromCheckpoint {
+				if l.restoreFromCheckpoint {
 					ok, err = checkTableUniqIndex(l.conns[0], db, table)
 					if err != nil {
 						log.Fatalf("check table uniq index failed - %v", errors.ErrorStack(err))
 					}
 
-					if !ok {
+					if !ok { // no unique index
 						err = truncateTable(l.conns[0], db, table)
 						if err != nil {
 							log.Fatalf("truncate table failed - %s - %s - %v", db, table, errors.ErrorStack(err))
 						}
 
-						l.loadFromCheckpoint = false
+						l.restoreFromCheckpoint = false
 
 						// We should redo truncated table sql files in saved map.
 						err = l.redoSkippedFiles(db, table)
 						if err != nil {
 							log.Fatalf("redo skipped files failed - %v", errors.ErrorStack(err))
 						}
+					} else {
+						// has unique index, use `INSERT ... IGNORE`
+						l.restoreDataFile(abDataFile, dataFile, db, table, true)
+					}
+
+				} else {
+					err = l.restoreDataFile(abDataFile, dataFile, db, table, false)
+					if err != nil {
+						log.Fatalf("run sql file failed - %v", errors.ErrorStack(err))
 					}
 				}
 
-				err = l.runSQLFile(sqlFile, sql, db, table)
-				if err != nil {
-					log.Fatalf("run sql file failed - %v", errors.ErrorStack(err))
-				}
-
-				if l.loadFromCheckpoint {
-					l.loadFromCheckpoint = false
+				if l.restoreFromCheckpoint {
+					l.restoreFromCheckpoint = false
 				}
 			}
+
+			l.skippedFiles = make
 
 			return true
 		})
 	}
 
 	return nil
-}
-
-func (l *Loader) printStatus() {
-	defer l.wg.Done()
-
-	timer := time.NewTicker(statusTime)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-l.ctx.Done():
-			return
-		case <-timer.C:
-			// TODO: print more informations.
-			log.Infof("[loader meta]%s", l.meta)
-		}
-	}
 }
 
 func (l *Loader) isClosed() bool {

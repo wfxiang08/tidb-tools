@@ -29,7 +29,7 @@ func NewConfig() *Config {
 
 	fs.StringVar(&cfg.Dir, "d", "./", "Directory of the dump to import")
 
-	fs.IntVar(&cfg.Batch, "q", 1000, "Number of queries per transaction")
+	fs.IntVar(&cfg.Batch, "q", 1, "Number of queries per transaction, default 1")
 	fs.IntVar(&cfg.Worker, "t", 4, "Number of threads to use")
 
 	fs.StringVar(&cfg.DB.Host, "h", "127.0.0.1", "The host to connect to")
