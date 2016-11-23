@@ -41,7 +41,7 @@ func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 	return rows, nil
 }
 
-func executeSQL(db *sql.DB, sqls []string, enableRetry bool) error {
+func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck bool) error {
 	if len(sqls) == 0 {
 		return nil
 	}
@@ -54,6 +54,16 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool) error {
 	retryCount := 1
 	if enableRetry {
 		retryCount = maxRetryCount
+	}
+
+	if skipConstraintCheck {
+		_, err = querySQL(db, "set @@session.tidb_skip_constraint_check=1;")
+	} else {
+		_, err = querySQL(db, "set @@session.tidb_skip_constraint_check=0;")
+	}
+	if err != nil {
+		log.Errorf("exec set session.tidb_skip_constraint_check failed %v", errors.ErrorStack(err))
+		return errors.Trace(err)
 	}
 
 RETRY:

@@ -34,10 +34,11 @@ import (
 
 type job struct {
 	sql string
+	skipConstraintCheck bool
 }
 
-func newJob(sql string) *job {
-	return &job{sql: sql}
+func newJob(sql string, skipConstraintCheck bool) *job {
+	return &job{sql: sql, skipConstraintCheck: skipConstraintCheck}
 }
 
 var (
@@ -250,7 +251,7 @@ func (l *Loader) restoreSchema(db *sql.DB, sqlFile string, schema string) error 
 				}
 
 				sqls = append(sqls, query)
-				err = executeSQL(db, sqls, false)
+				err = executeSQL(db, sqls, false, false)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -300,7 +301,7 @@ func (l *Loader) dispatchSQL(file string, schema string, table string, checkExis
 					sql = query
 				}
 
-				l.dispatchJob(newJob(sql))
+				l.dispatchJob(newJob(sql, !checkExist && l.cfg.SkipConstraintCheck == 1))
 			}
 		}
 	}
@@ -316,6 +317,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 	sqls := make([]string, 0, batchSize)
 	lastSyncTime := time.Now()
 
+	skipConstraintCheck := true
 	for {
 		select {
 		case job, ok := <-queue:
@@ -325,10 +327,14 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 				return
 			}
 
+			if !job.skipConstraintCheck {
+				skipConstraintCheck = false
+			}
+
 			sqls = append(sqls, job.sql)
 			count++
 			if count >= batchSize {
-				if err := executeSQL(db, sqls, true); err != nil {
+				if err := executeSQL(db, sqls, true, skipConstraintCheck); err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
@@ -339,11 +345,13 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 				count = 0
 				sqls = sqls[0:0]
 				lastSyncTime = time.Now()
+
+				skipConstraintCheck = true
 			}
 		default:
 			now := time.Now()
 			if now.Sub(lastSyncTime) >= maxWaitTime {
-				if err := executeSQL(db, sqls, true); err != nil {
+				if err := executeSQL(db, sqls, true, skipConstraintCheck); err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
@@ -354,6 +362,8 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 				count = 0
 				sqls = sqls[0:0]
 				lastSyncTime = now
+
+				skipConstraintCheck = true
 			}
 
 			time.Sleep(waitTime)
