@@ -24,8 +24,6 @@ import (
 	"github.com/pingcap/tidb/ast"
 )
 
-var retryTimeout = 3 * time.Second
-
 func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 	var (
 		err  error
@@ -43,7 +41,7 @@ func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 	return rows, nil
 }
 
-func executeSQL(db *sql.DB, sqls []string, retry bool) error {
+func executeSQL(db *sql.DB, sqls []string, enableRetry bool) error {
 	if len(sqls) == 0 {
 		return nil
 	}
@@ -54,15 +52,15 @@ func executeSQL(db *sql.DB, sqls []string, retry bool) error {
 	)
 
 	retryCount := 1
-	if retry {
+	if enableRetry {
 		retryCount = maxRetryCount
 	}
 
-LOOP:
+RETRY:
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
 			log.Warnf("exec sql retry %d - %v", i, sqls)
-			time.Sleep(retryTimeout)
+			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
 		txn, err = db.Begin()
@@ -81,7 +79,7 @@ LOOP:
 				if rerr != nil {
 					log.Errorf("[exec][sql]%s[error]%v", sqls[i], rerr)
 				}
-				continue LOOP
+				continue RETRY
 			}
 		}
 
@@ -93,7 +91,6 @@ LOOP:
 
 		return nil
 	}
-
 	if err != nil {
 		log.Errorf("exec sqls[%v] failed %v", sqls, errors.ErrorStack(err))
 		return errors.Trace(err)
@@ -102,7 +99,7 @@ LOOP:
 	return errors.Errorf("exec sqls[%v] failed", sqls)
 }
 
-func checkTableUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
+func hasUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
 	if schema == "" || table == "" {
 		return false, errors.New("schema/table is empty")
 	}
@@ -207,7 +204,7 @@ func closeDB(db *sql.DB) error {
 	return errors.Trace(db.Close())
 }
 
-func connectToDB(cfg DBConfig, count int) ([]*sql.DB, error) {
+func createDBs(cfg DBConfig, count int) ([]*sql.DB, error) {
 	dbs := make([]*sql.DB, 0, count)
 	for i := 0; i < count; i++ {
 		db, err := createDB(cfg)

@@ -17,11 +17,11 @@ import (
 	"os"
 	"sync"
 
-	"github.com/juju/errors"
 	"bufio"
+	"fmt"
+	"github.com/juju/errors"
 	"io"
 	"strings"
-	"fmt"
 )
 
 type CheckPoint struct {
@@ -87,7 +87,7 @@ func (cp *CheckPoint) Save(filename string) error {
 
 	// seek to end, and append
 	n, _ := f.Seek(0, os.SEEK_END)
-	if _, err := f.WriteAt([]byte(filename + '\n'), n); err != nil {
+	if _, err := f.WriteAt([]byte(fmt.Sprintf("%s\n", filename)), n); err != nil {
 		return err
 	}
 
@@ -105,4 +105,3 @@ func (cp *CheckPoint) Dump() map[string]struct{} {
 
 	return m
 }
-
