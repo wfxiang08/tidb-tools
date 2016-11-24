@@ -25,7 +25,6 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/google/btree"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	tidb "github.com/pingcap/tidb/mysql"
@@ -50,6 +49,9 @@ var (
 	maxWaitTime = 1 * time.Second
 )
 
+type DataFiles []string
+type Tables map[string]DataFiles
+
 // Loader can load your mydumper data into MySQL database.
 type Loader struct {
 	sync.Mutex
@@ -62,7 +64,8 @@ type Loader struct {
 	jobWg sync.WaitGroup
 
 	// db -> tables
-	dbTables map[string]*btree.BTree
+	// table -> data files
+	dbTables map[string]Tables
 
 	restoredFiles map[string]struct{}
 
@@ -83,7 +86,7 @@ func NewLoader(cfg *Config) *Loader {
 	loader.closed.Set(false)
 	loader.checkPoint = newCheckPoint(cfg.CheckPoint)
 	loader.restoreFromCheckpoint = loader.checkPoint.IsRestoreFromLastCheckPoint()
-	loader.dbTables = make(map[string]*btree.BTree)
+	loader.dbTables = make(map[string]Tables)
 	loader.restoredFiles = loader.checkPoint.Dump()
 	loader.jobsQueue = make(chan *job, jobCount)
 	loader.firstDataFile = true
@@ -131,7 +134,8 @@ func (l *Loader) prepare() error {
 		idx := strings.Index(file, "-schema-create.sql")
 		if idx > 0 {
 			db := file[:idx]
-			l.dbTables[db] = btree.New(defaultBTreeDegree)
+			//l.dbTables[db] = btree.New(defaultBTreeDegree)
+			l.dbTables[db] = make(Tables)
 			usedFiles[file] = struct{}{}
 		}
 	}
@@ -157,11 +161,10 @@ func (l *Loader) prepare() error {
 			return errors.Errorf("invalid table schema file, cannot find db - %s", file)
 		}
 
-		it := &item{key: table}
-		rit := tables.ReplaceOrInsert(it)
-		if rit != nil {
+		if _, ok := tables[table]; ok {
 			return errors.Errorf("invalid table schema file, duplicated item - %s", file)
 		}
+		tables[table] = make(DataFiles, 0, 16)
 
 		usedFiles[file] = struct{}{}
 	}
@@ -193,13 +196,12 @@ func (l *Loader) prepare() error {
 			return errors.Errorf("invalid data sql file, cannot find db - %s", file)
 		}
 
-		key := &item{key: table}
-		it := tables.Get(key)
-		if it == nil {
+		dataFiles, ok := tables[table]
+		if !ok {
 			return errors.Errorf("invalid data sql file, cannot find table - %s", file)
 		}
 
-		it.(*item).values = append(it.(*item).values, file)
+		dataFiles = append(dataFiles, file)
 		usedFiles[file] = struct{}{}
 	}
 
@@ -454,9 +456,12 @@ func (l *Loader) restoreData() error {
 		log.Infof("[loader][run db schema]%s[finished]", dbFile)
 
 		// restore table in sort
-		tables.Ascend(func(i btree.Item) bool {
-			table := i.(*item).key
-
+		tnames := make([]string, 0, len(tables))
+		for t, _ := range tables {
+			tnames = append(tnames, t)
+		}
+		sort.Strings(tnames)
+		for _, table := range tnames {
 			// create table
 			tableFile := fmt.Sprintf("%s/%s.%s-schema.sql", l.cfg.Dir, db, table)
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
@@ -473,10 +478,9 @@ func (l *Loader) restoreData() error {
 			}
 			log.Infof("[loader][run table schema]%s[finished]", tableFile)
 
-			dataFiles := i.(*item).values
+			// restore data in sort for this table
+			dataFiles := tables[table]
 			sort.Strings(dataFiles)
-
-			// restore data for this table
 			var skippedDataFiles []string
 			for _, dataFile := range dataFiles {
 				_, ok := l.restoredFiles[dataFile]
@@ -521,9 +525,7 @@ func (l *Loader) restoreData() error {
 					l.firstDataFile = false
 				}
 			}
-
-			return true
-		})
+		}
 	}
 
 	return nil

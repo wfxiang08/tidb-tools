@@ -14,30 +14,10 @@
 package main
 
 import (
-	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/google/btree"
 )
-
-var _ btree.Item = &item{}
-
-type item struct {
-	key    string
-	values []string
-}
-
-func (i *item) Less(other btree.Item) bool {
-	left := i.key
-	right := other.(*item).key
-	return left < right
-}
-
-func (i *item) Contains(key []byte) bool {
-	return string(key) == i.key
-}
 
 // IsFileExists checks if file exists.
 func IsFileExists(name string) bool {
@@ -93,8 +73,4 @@ func CollectDirFiles(path string) map[string]struct{} {
 	})
 
 	return files
-}
-
-func genHashKey(key string) uint32 {
-	return crc32.ChecksumIEEE([]byte(key))
 }
