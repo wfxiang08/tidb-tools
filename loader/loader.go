@@ -36,10 +36,6 @@ type job struct {
 	skipConstraintCheck bool
 }
 
-func newJob(sql string, skipConstraintCheck bool) *job {
-	return &job{sql: sql, skipConstraintCheck: skipConstraintCheck}
-}
-
 var (
 	jobCount      = 1000
 	maxRetryCount = 10
@@ -107,41 +103,29 @@ func (l *Loader) Restore() error {
 	return nil
 }
 
-func (l *Loader) prepare() error {
-	// check if mydumper dir data exists.
-	if !IsDirExists(l.cfg.Dir) {
-		return errors.New("empty mydumper dir")
-	}
-
-	// collect dir files.
-	files := CollectDirFiles(l.cfg.Dir)
-	_, ok := files["metadata"]
-	if !ok {
-		return errors.New("invalid mydumper dir, none metadata exists")
-	}
-
-	/* Mydumper file names format
-	 * db    {db}-schema-create.sql
-	 * table {db}.{table}-schema.sql
-	 * sql   {db}.{table}.{part}.sql or {db}.{table}.sql
-	 */
-
-	usedFiles := make(map[string]struct{})
-
-	// Sql file for create db
+func (l *Loader) prepareDbFiles(files map[string]struct{}) error {
 	for file, _ := range files {
+		if !strings.HasSuffix(file, "-schema-create.sql") {
+			continue
+		}
+
 		idx := strings.Index(file, "-schema-create.sql")
 		if idx > 0 {
 			db := file[:idx]
 			l.dbTables[db] = make(Tables)
-			usedFiles[file] = struct{}{}
 		}
 	}
 
-	// Sql file for create table
+	if len(l.dbTables) == 0 {
+		return errors.New("invalid mydumper files")
+	}
+
+	return nil
+}
+
+func (l *Loader) prepareTableFiles(files map[string]struct{}) error {
 	for file, _ := range files {
-		_, ok := usedFiles[file]
-		if ok || !strings.HasSuffix(file, "-schema.sql") {
+		if !strings.HasSuffix(file, "-schema.sql") {
 			continue
 		}
 
@@ -163,20 +147,22 @@ func (l *Loader) prepare() error {
 			return errors.Errorf("invalid table schema file, duplicated item - %s", file)
 		}
 		tables[table] = make(DataFiles, 0, 16)
-
-		usedFiles[file] = struct{}{}
 	}
 
-	// Sql file for restore data
+	return nil
+}
+
+func (l *Loader) prepareDataFiles(files map[string]struct{}) error {
 	for file, _ := range files {
-		_, ok := usedFiles[file]
-		if ok || !strings.HasSuffix(file, ".sql") {
+		if !strings.HasSuffix(file, ".sql") || strings.Index(file, "-schema.sql") >= 0 ||
+			strings.Index(file, "-schema-create.sql") >= 0 {
 			continue
 		}
 
 		// ignore view / triggers
 		if strings.Index(file, "-schema-view.sql") >= 0 || strings.Index(file, "-schema-triggers.sql") >= 0 ||
 			strings.Index(file, "-schema-post.sql") >= 0 {
+			log.Warnf("[loader] ignore unsupport view/trigger: %s", file)
 			continue
 		}
 
@@ -200,22 +186,48 @@ func (l *Loader) prepare() error {
 		}
 
 		dataFiles = append(dataFiles, file)
-		usedFiles[file] = struct{}{}
-	}
-
-	if len(l.dbTables) == 0 {
-		return errors.New("invalid mydumper files")
 	}
 
 	return nil
 }
 
-func (l *Loader) dispatchJob(job *job) error {
+func (l *Loader) prepare() error {
+	// check if mydumper dir data exists.
+	if !IsDirExists(l.cfg.Dir) {
+		return errors.New("empty mydumper dir")
+	}
+
+	// collect dir files.
+	files := CollectDirFiles(l.cfg.Dir)
+	_, ok := files["metadata"]
+	if !ok {
+		return errors.New("invalid mydumper dir, none metadata exists")
+	}
+
+	/* Mydumper file names format
+	 * db    {db}-schema-create.sql
+	 * table {db}.{table}-schema.sql
+	 * sql   {db}.{table}.{part}.sql or {db}.{table}.sql
+	 */
+
+	// Sql file for create db
+	if err := l.prepareDbFiles(files); err != nil {
+		return err
+	}
+
+	// Sql file for create table
+	if err := l.prepareTableFiles(files); err != nil {
+		return err
+	}
+
+	// Sql file for restore data
+	return l.prepareDataFiles(files)
+}
+
+func (l *Loader) dispatchJob(job *job) {
 	l.jobWg.Add(1)
 
 	l.jobsQueue <- job
-
-	return nil
 }
 
 func (l *Loader) restoreSchema(db *sql.DB, sqlFile string, schema string) error {
@@ -301,7 +313,14 @@ func (l *Loader) dispatchSQL(file string, schema string, table string, checkExis
 					sql = query
 				}
 
-				l.dispatchJob(newJob(sql, !checkExist && l.cfg.SkipConstraintCheck == 1))
+				j := &job{
+					sql:                 sql,
+					skipConstraintCheck: l.cfg.SkipConstraintCheck == 1,
+				}
+				if checkExist {
+					j.skipConstraintCheck = false
+				}
+				l.dispatchJob(j)
 			}
 		}
 	}
