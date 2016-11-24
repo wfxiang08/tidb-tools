@@ -361,7 +361,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
-				for _ = range count {
+				for i := 0; i < count; i++ {
 					l.jobWg.Done()
 				}
 
@@ -378,7 +378,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
-				for _ = range count {
+				for i := 0; i < count; i++ {
 					l.jobWg.Done()
 				}
 
