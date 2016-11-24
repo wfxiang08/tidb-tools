@@ -86,7 +86,7 @@ type Config struct {
 
 	DB DBConfig `toml:"db" json:"db"`
 
-	configFile string
+	configFile          string
 	SkipConstraintCheck int `toml:"skip-unique-check" json:"skip-unique-check"`
 }
 

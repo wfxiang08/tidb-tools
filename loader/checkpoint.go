@@ -20,27 +20,28 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/juju/errors"
+	"github.com/ngaut/log"
 	"io"
 	"strings"
 )
 
 type CheckPoint struct {
 	sync.RWMutex
-	path                      string
-	restoredFiles             map[string]struct{}
-	restoreFromLastCheckPoint bool
+	path              string
+	restoredFiles     map[string]struct{}
+	restoreFromLastCP bool // restore from last checkpoint
 }
 
 func newCheckPoint(filename string) *CheckPoint {
-	cp := &CheckPoint{path: filename, restoreFromLastCheckPoint: false}
+	cp := &CheckPoint{path: filename, restoreFromLastCP: false}
 	if err := cp.load(); err != nil {
-		panic(fmt.Sprintf("recover from check point failed, %v", err))
+		log.Fatal("recover from check point failed, %v", err)
 	}
 	return cp
 }
 
 func (cp *CheckPoint) IsRestoreFromLastCheckPoint() bool {
-	return cp.restoreFromLastCheckPoint
+	return cp.restoreFromLastCP
 }
 
 func (cp *CheckPoint) load() error {
@@ -53,20 +54,19 @@ func (cp *CheckPoint) load() error {
 	}
 	defer f.Close()
 
-	cp.restoreFromLastCheckPoint = true
+	cp.restoreFromLastCP = true
 	br := bufio.NewReader(f)
 	for {
 		line, err := br.ReadString('\n')
 		if err == io.EOF {
 			break
-		} else {
-			l := strings.TrimSpace(line[:len(line)-1])
-			if len(l) == 0 {
-				continue
-			}
-
-			cp.restoredFiles[l] = struct{}{}
 		}
+		l := strings.TrimSpace(line[:len(line)-1])
+		if len(l) == 0 {
+			continue
+		}
+
+		cp.restoredFiles[l] = struct{}{}
 	}
 
 	return nil

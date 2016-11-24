@@ -32,7 +32,7 @@ import (
 )
 
 type job struct {
-	sql string
+	sql                 string
 	skipConstraintCheck bool
 }
 
@@ -41,8 +41,8 @@ func newJob(sql string, skipConstraintCheck bool) *job {
 }
 
 var (
-	jobCount           = 1000
-	maxRetryCount      = 10
+	jobCount      = 1000
+	maxRetryCount = 10
 
 	waitTime    = 50 * time.Millisecond
 	maxWaitTime = 1 * time.Second
