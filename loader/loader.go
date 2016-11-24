@@ -33,7 +33,7 @@ import (
 
 type job struct {
 	sql                 string
-	schema string
+	schema              string
 	skipConstraintCheck bool
 }
 
@@ -316,7 +316,7 @@ func (l *Loader) dispatchSQL(file string, schema string, table string, checkExis
 
 				j := &job{
 					sql:                 sql,
-					schema: schema,
+					schema:              schema,
 					skipConstraintCheck: l.cfg.SkipConstraintCheck == 1,
 				}
 				if checkExist {
@@ -468,10 +468,11 @@ func (l *Loader) restoreData() error {
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
 		err = l.restoreSchema(l.conns[0], dbFile, "")
 		if err != nil {
-			if err.(*mysql.MySQLError).Number != tidb.ErrDBCreateExists {
-				log.Fatal("run db schema failed - %v", errors.ErrorStack(err))
-			} else {
+			err = errors.Cause(err)
+			if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrDBCreateExists {
 				log.Warnf("run db schema failed - %v", errors.ErrorStack(err))
+			} else {
+				log.Fatal("run db schema failed - %v", errors.ErrorStack(err))
 			}
 		}
 		log.Infof("[loader][run db schema]%s[finished]", dbFile)
@@ -488,7 +489,8 @@ func (l *Loader) restoreData() error {
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
 			err := l.restoreSchema(l.conns[0], tableFile, db)
 			if err != nil {
-				if err.(*mysql.MySQLError).Number == tidb.ErrTableExists {
+				err = errors.Cause(err)
+				if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrTableExists {
 					log.Warnf("run table schema failed - %v", errors.ErrorStack(err))
 					if !l.restoreFromCheckpoint {
 						l.restoreFromCheckpoint = true
