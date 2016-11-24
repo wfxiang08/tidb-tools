@@ -443,6 +443,19 @@ func (l *Loader) restoreDataFile(path string, dataFile string, schema string, ta
 	return nil
 }
 
+func causeErr(err error) error {
+	var e error
+	for {
+		e = errors.Cause(err)
+		if err == e {
+			break
+		} else {
+			err = e
+		}
+	}
+	return e
+}
+
 func (l *Loader) restoreData() error {
 	var err error
 	l.conns, err = createDBs(l.cfg.DB, l.cfg.Worker)
@@ -468,11 +481,11 @@ func (l *Loader) restoreData() error {
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
 		err = l.restoreSchema(l.conns[0], dbFile, "")
 		if err != nil {
-			err = errors.Cause(err)
+			err = causeErr(err)
 			if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrDBCreateExists {
 				log.Warnf("run db schema failed - %v", errors.ErrorStack(err))
 			} else {
-				log.Fatal("run db schema failed - %v", errors.ErrorStack(err))
+				log.Fatalf("run db schema failed - %v", errors.ErrorStack(err))
 			}
 		}
 		log.Infof("[loader][run db schema]%s[finished]", dbFile)
@@ -489,14 +502,14 @@ func (l *Loader) restoreData() error {
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
 			err := l.restoreSchema(l.conns[0], tableFile, db)
 			if err != nil {
-				err = errors.Cause(err)
+				err = causeErr(err)
 				if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrTableExists {
 					log.Warnf("run table schema failed - %v", errors.ErrorStack(err))
 					if !l.restoreFromCheckpoint {
 						l.restoreFromCheckpoint = true
 					}
 				} else {
-					log.Fatal("run table schema failed - %v", errors.ErrorStack(err))
+					log.Fatalf("run table schema failed - %v", errors.ErrorStack(err))
 				}
 			}
 			log.Infof("[loader][run table schema]%s[finished]", tableFile)
