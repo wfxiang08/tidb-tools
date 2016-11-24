@@ -33,7 +33,11 @@ type CheckPoint struct {
 }
 
 func newCheckPoint(filename string) *CheckPoint {
-	cp := &CheckPoint{path: filename, restoreFromLastCP: false}
+	cp := &CheckPoint{
+		path:              filename,
+		restoredFiles:     make(map[string]struct{}),
+		restoreFromLastCP: false,
+	}
 	if err := cp.load(); err != nil {
 		log.Fatal("recover from check point failed, %v", err)
 	}

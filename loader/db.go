@@ -68,7 +68,7 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
-		if err := executeSQLImp(db, sqls); err != nil {
+		if err = executeSQLImp(db, sqls); err != nil {
 			continue
 		}
 
