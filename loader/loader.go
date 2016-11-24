@@ -33,6 +33,7 @@ import (
 
 type job struct {
 	sql                 string
+	schema string
 	skipConstraintCheck bool
 }
 
@@ -315,6 +316,7 @@ func (l *Loader) dispatchSQL(file string, schema string, table string, checkExis
 
 				j := &job{
 					sql:                 sql,
+					schema: schema,
 					skipConstraintCheck: l.cfg.SkipConstraintCheck == 1,
 				}
 				if checkExist {
@@ -350,6 +352,9 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 				skipConstraintCheck = false
 			}
 
+			if len(sqls) == 0 {
+				sqls = append(sqls, fmt.Sprintf("USE %s;", job.schema))
+			}
 			sqls = append(sqls, job.sql)
 			count++
 			if count >= batchSize {

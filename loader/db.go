@@ -63,7 +63,8 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
-			log.Warnf("exec sql retry %d - %v", i, sqls)
+
+			log.Warnf("exec sql retry %d - %-.100v", i, sqls)
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
@@ -74,11 +75,11 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 		return nil
 	}
 	if err != nil {
-		log.Errorf("exec sqls[%v] failed %v", sqls, errors.ErrorStack(err))
+		log.Errorf("exec sqls[%-.100v] failed %v", sqls, errors.ErrorStack(err))
 		return errors.Trace(err)
 	}
 
-	return errors.Errorf("exec sqls[%v] failed", sqls)
+	return errors.Errorf("exec sqls[%-.100v] failed", sqls)
 }
 
 func executeSQLImp(db *sql.DB, sqls []string) error {
@@ -89,19 +90,19 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 
 	txn, err = db.Begin()
 	if err != nil {
-		log.Errorf("exec sqls[%v] begin failed %v", sqls, errors.ErrorStack(err))
+		log.Errorf("exec sqls[%-.100v] begin failed %v", sqls, errors.ErrorStack(err))
 		return err
 	}
 
 	for i := range sqls {
-		log.Debugf("[exec][sql]%s", sqls[i])
+		log.Debugf("[exec][sql]%-.100v", sqls)
 
 		_, err = txn.Exec(sqls[i])
 		if err != nil {
-			log.Warnf("[exec][sql]%s[error]%v", sqls[i], err)
+			log.Warnf("[exec][sql]%-.100v[error]%v", sqls, err)
 			rerr := txn.Rollback()
 			if rerr != nil {
-				log.Errorf("[exec][sql]%s[error]%v", sqls[i], rerr)
+				log.Errorf("[exec][sql]%-.100s[error]%v", sqls, rerr)
 				return rerr
 			}
 			return err
@@ -110,7 +111,7 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 
 	err = txn.Commit()
 	if err != nil {
-		log.Errorf("exec sqls[%v] commit failed %v", sqls, errors.ErrorStack(err))
+		log.Errorf("exec sqls[%-.100v] commit failed %v", sqls, errors.ErrorStack(err))
 		return err
 	}
 
