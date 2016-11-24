@@ -347,7 +347,6 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 				l.wg.Done()
 				return
 			}
-
 			if !job.skipConstraintCheck {
 				skipConstraintCheck = false
 			}
@@ -362,7 +361,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
-				for _ = range sqls {
+				for _ = range count {
 					l.jobWg.Done()
 				}
 
@@ -379,7 +378,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
-				for _ = range sqls {
+				for _ = range count {
 					l.jobWg.Done()
 				}
 
