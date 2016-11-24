@@ -184,8 +184,8 @@ func (l *Loader) prepareDataFiles(files map[string]struct{}) error {
 		if !ok {
 			return errors.Errorf("invalid data sql file, cannot find table - %s", file)
 		}
-
 		dataFiles = append(dataFiles, file)
+		tables[table] = dataFiles
 	}
 
 	return nil
