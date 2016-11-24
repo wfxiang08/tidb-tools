@@ -83,7 +83,7 @@ func (cp *CheckPoint) Save(filename string) error {
 	cp.restoredFiles[filename] = struct{}{}
 
 	// add to checkpoint file
-	f, err := os.OpenFile(cp.path, os.O_APPEND|os.O_CREATE, 0644)
+	f, err := os.OpenFile(cp.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return errors.Trace(err)
 	}
