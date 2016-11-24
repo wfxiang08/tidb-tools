@@ -178,7 +178,7 @@ func truncateTable(db *sql.DB, schema string, table string) error {
 		return errors.New("schema/table is empty")
 	}
 
-	query := fmt.Sprintf("truncate table %s.%s;", schema, table)
+	query := fmt.Sprintf("truncate table `%s`.`%s`;", schema, table)
 	rows, err := querySQL(db, query)
 	if err != nil {
 		return errors.Trace(err)
