@@ -133,7 +133,6 @@ func (l *Loader) prepare() error {
 		idx := strings.Index(file, "-schema-create.sql")
 		if idx > 0 {
 			db := file[:idx]
-			//l.dbTables[db] = btree.New(defaultBTreeDegree)
 			l.dbTables[db] = make(Tables)
 			usedFiles[file] = struct{}{}
 		}
