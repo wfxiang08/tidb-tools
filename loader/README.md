@@ -13,8 +13,10 @@ Usage of loader:
     	Directory of the dump to import (default "./")
   -h string
     	The host to connect to (default "127.0.0.1")
-  -meta string
-    	loader saved meta info (default "loader.meta")
+  -checkpoint string
+    	Loader saved checkpoint (default "loader.checkpoint")
+  -skip-unique-check
+        skip unique index check (default 0)
   -p string
     	User password
   -pprof-addr string

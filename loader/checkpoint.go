@@ -45,10 +45,10 @@ func (cp *CheckPoint) IsRestoreFromLastCheckPoint() bool {
 
 func (cp *CheckPoint) load() error {
 	f, err := os.Open(cp.path)
-	if err != nil && !os.IsNotExist(errors.Cause(err)) {
+	if err != nil && !os.IsNotExist(err) {
 		return errors.Trace(err)
 	}
-	if os.IsNotExist(errors.Cause(err)) {
+	if os.IsNotExist(err) {
 		return nil
 	}
 	defer f.Close()
@@ -65,7 +65,7 @@ func (cp *CheckPoint) load() error {
 				continue
 			}
 
-			cp.restoredFiles[string(l)] = struct{}{}
+			cp.restoredFiles[l] = struct{}{}
 		}
 	}
 
@@ -79,16 +79,14 @@ func (cp *CheckPoint) Save(filename string) error {
 	cp.restoredFiles[filename] = struct{}{}
 
 	// add to checkpoint file
-	f, err := os.OpenFile(cp.path, os.O_RDWR|os.O_CREATE, 0600)
+	f, err := os.OpenFile(cp.path, os.O_APPEND|os.O_CREATE, 0644)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	defer f.Close()
 
-	// seek to end, and append
-	n, _ := f.Seek(0, os.SEEK_END)
-	if _, err := f.WriteAt([]byte(fmt.Sprintf("%s\n", filename)), n); err != nil {
-		return err
+	if _, err := fmt.Fprintf(f, "%s\n", filename); err != nil {
+		return errors.Trace(err)
 	}
 
 	return nil

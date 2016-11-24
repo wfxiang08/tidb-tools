@@ -21,7 +21,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	"github.com/pingcap/tidb/ast"
 )
 
 func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
@@ -46,10 +45,7 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 		return nil
 	}
 
-	var (
-		err error
-		txn *sql.Tx
-	)
+	var err error
 
 	retryCount := 1
 	if enableRetry {
@@ -62,40 +58,16 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 		_, err = querySQL(db, "set @@session.tidb_skip_constraint_check=0;")
 	}
 	if err != nil {
-		log.Errorf("exec set session.tidb_skip_constraint_check failed %v", errors.ErrorStack(err))
 		return errors.Trace(err)
 	}
 
-RETRY:
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
 			log.Warnf("exec sql retry %d - %v", i, sqls)
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
-		txn, err = db.Begin()
-		if err != nil {
-			log.Errorf("exec sqls[%v] begin failed %v", sqls, errors.ErrorStack(err))
-			continue
-		}
-
-		for i := range sqls {
-			log.Debugf("[exec][sql]%s", sqls[i])
-
-			_, err = txn.Exec(sqls[i])
-			if err != nil {
-				log.Warnf("[exec][sql]%s[error]%v", sqls[i], err)
-				rerr := txn.Rollback()
-				if rerr != nil {
-					log.Errorf("[exec][sql]%s[error]%v", sqls[i], rerr)
-				}
-				continue RETRY
-			}
-		}
-
-		err = txn.Commit()
-		if err != nil {
-			log.Errorf("exec sqls[%v] commit failed %v", sqls, errors.ErrorStack(err))
+		if err := executeSQLImp(db, sqls); err != nil {
 			continue
 		}
 
@@ -107,6 +79,42 @@ RETRY:
 	}
 
 	return errors.Errorf("exec sqls[%v] failed", sqls)
+}
+
+func executeSQLImp(db *sql.DB, sqls []string) error {
+	var (
+		err error
+		txn *sql.Tx
+	)
+
+	txn, err = db.Begin()
+	if err != nil {
+		log.Errorf("exec sqls[%v] begin failed %v", sqls, errors.ErrorStack(err))
+		return err
+	}
+
+	for i := range sqls {
+		log.Debugf("[exec][sql]%s", sqls[i])
+
+		_, err = txn.Exec(sqls[i])
+		if err != nil {
+			log.Warnf("[exec][sql]%s[error]%v", sqls[i], err)
+			rerr := txn.Rollback()
+			if rerr != nil {
+				log.Errorf("[exec][sql]%s[error]%v", sqls[i], rerr)
+				return rerr
+			}
+			return err
+		}
+	}
+
+	err = txn.Commit()
+	if err != nil {
+		log.Errorf("exec sqls[%v] commit failed %v", sqls, errors.ErrorStack(err))
+		return err
+	}
+
+	return nil
 }
 
 func hasUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
@@ -163,20 +171,6 @@ func hasUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
 	}
 
 	return false, nil
-}
-
-func checkAndGetTableName(stmt *ast.InsertStmt) (string, bool) {
-	ts, ok := stmt.Table.TableRefs.Left.(*ast.TableSource)
-	if !ok {
-		return "", false
-	}
-
-	tn, ok := ts.Source.(*ast.TableName)
-	if !ok {
-		return "", false
-	}
-
-	return tn.Name.O, true
 }
 
 func truncateTable(db *sql.DB, schema string, table string) error {

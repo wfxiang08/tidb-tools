@@ -36,12 +36,14 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.DB.User, "u", "root", "Username with privileges to run the dump")
 	fs.StringVar(&cfg.DB.Password, "p", "", "User password")
 	fs.IntVar(&cfg.DB.Port, "P", 4000, "TCP/IP port to connect to")
-	fs.IntVar(&cfg.SkipConstraintCheck, "skip-unique-check", 1, "skip constraint check")
+	fs.IntVar(&cfg.SkipConstraintCheck, "skip-unique-check", 0, "skip constraint check")
 
 	fs.StringVar(&cfg.CheckPoint, "checkpoint", "loader.checkpoint", "store files that has restored")
 
 	fs.StringVar(&cfg.PprofAddr, "pprof-addr", ":10084", "Loader pprof addr")
 	fs.StringVar(&cfg.LogLevel, "L", "info", "Loader log level: debug, info, warn, error, fatal")
+
+	fs.StringVar(&cfg.configFile, "c", "", "config file")
 
 	return cfg
 }
@@ -85,7 +87,7 @@ type Config struct {
 	DB DBConfig `toml:"db" json:"db"`
 
 	configFile string
-	SkipConstraintCheck int
+	SkipConstraintCheck int `toml:"skip-unique-check" json:"skip-unique-check"`
 }
 
 // Parse parses flag definitions from the argument list.

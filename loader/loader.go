@@ -41,7 +41,6 @@ func newJob(sql string, skipConstraintCheck bool) *job {
 }
 
 var (
-	defaultBTreeDegree = 64
 	jobCount           = 1000
 	maxRetryCount      = 10
 
