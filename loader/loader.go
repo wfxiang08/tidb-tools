@@ -15,7 +15,6 @@ package main
 
 import (
 	"bufio"
-	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -65,7 +64,7 @@ type Loader struct {
 
 	restoredFiles map[string]struct{}
 
-	conns []*sql.DB
+	conns []*Conn
 
 	jobsQueue chan *job
 
@@ -231,7 +230,7 @@ func (l *Loader) dispatchJob(job *job) {
 	l.jobsQueue <- job
 }
 
-func (l *Loader) restoreSchema(db *sql.DB, sqlFile string, schema string) error {
+func (l *Loader) restoreSchema(conn *Conn, sqlFile string, schema string) error {
 	f, err := os.Open(sqlFile)
 	if err != nil {
 		return errors.Trace(err)
@@ -264,7 +263,7 @@ func (l *Loader) restoreSchema(db *sql.DB, sqlFile string, schema string) error 
 				}
 
 				sqls = append(sqls, query)
-				err = executeSQL(db, sqls, false, false)
+				err = executeSQL(conn, sqls, false, false)
 				if err != nil {
 					return errors.Trace(err)
 				}
@@ -330,7 +329,7 @@ func (l *Loader) dispatchSQL(file string, schema string, table string, checkExis
 	return nil
 }
 
-func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
+func (l *Loader) runWorker(conn *Conn, queue chan *job) {
 	defer l.wg.Done()
 
 	count := 0
@@ -357,7 +356,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 			sqls = append(sqls, job.sql)
 			count++
 			if count >= batchSize {
-				if err := executeSQL(db, sqls, true, skipConstraintCheck); err != nil {
+				if err := executeSQL(conn, sqls, true, skipConstraintCheck); err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
@@ -374,7 +373,7 @@ func (l *Loader) runWorker(db *sql.DB, queue chan *job) {
 		default:
 			now := time.Now()
 			if now.Sub(lastSyncTime) >= maxWaitTime {
-				if err := executeSQL(db, sqls, true, skipConstraintCheck); err != nil {
+				if err := executeSQL(conn, sqls, true, skipConstraintCheck); err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
@@ -458,7 +457,7 @@ func causeErr(err error) error {
 
 func (l *Loader) restoreData() error {
 	var err error
-	l.conns, err = createDBs(l.cfg.DB, l.cfg.Worker)
+	l.conns, err = createConns(l.cfg.DB, l.cfg.Worker)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -589,7 +588,7 @@ func (l *Loader) Close() {
 
 	l.wg.Wait()
 
-	closeDBs(l.conns...)
+	closeConns(l.conns...)
 
 	l.closed.Set(true)
 }

@@ -23,6 +23,11 @@ import (
 	"github.com/ngaut/log"
 )
 
+type Conn struct {
+	db                  *sql.DB
+	skipConstraintCheck bool
+}
+
 func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 	var (
 		err  error
@@ -40,7 +45,7 @@ func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 	return rows, nil
 }
 
-func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck bool) error {
+func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck bool) error {
 	if len(sqls) == 0 {
 		return nil
 	}
@@ -52,13 +57,16 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 		retryCount = maxRetryCount
 	}
 
-	if skipConstraintCheck {
-		_, err = querySQL(db, "set @@session.tidb_skip_constraint_check=1;")
-	} else {
-		_, err = querySQL(db, "set @@session.tidb_skip_constraint_check=0;")
-	}
-	if err != nil {
-		return errors.Trace(err)
+	if skipConstraintCheck != conn.skipConstraintCheck {
+		if skipConstraintCheck {
+			_, err = querySQL(conn.db, "set @@session.tidb_skip_constraint_check=1;")
+		} else {
+			_, err = querySQL(conn.db, "set @@session.tidb_skip_constraint_check=0;")
+		}
+		if err != nil {
+			return errors.Trace(err)
+		}
+		conn.skipConstraintCheck = skipConstraintCheck
 	}
 
 	for i := 0; i < retryCount; i++ {
@@ -68,7 +76,7 @@ func executeSQL(db *sql.DB, sqls []string, enableRetry bool, skipConstraintCheck
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
-		if err = executeSQLImp(db, sqls); err != nil {
+		if err = executeSQLImp(conn.db, sqls); err != nil {
 			continue
 		}
 
@@ -118,13 +126,13 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 	return nil
 }
 
-func hasUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
+func hasUniqIndex(conn *Conn, schema string, table string) (bool, error) {
 	if schema == "" || table == "" {
 		return false, errors.New("schema/table is empty")
 	}
 
 	query := fmt.Sprintf("show index from %s.%s", schema, table)
-	rows, err := querySQL(db, query)
+	rows, err := querySQL(conn.db, query)
 	if err != nil {
 		return false, errors.Trace(err)
 	}
@@ -174,13 +182,13 @@ func hasUniqIndex(db *sql.DB, schema string, table string) (bool, error) {
 	return false, nil
 }
 
-func truncateTable(db *sql.DB, schema string, table string) error {
+func truncateTable(conn *Conn, schema string, table string) error {
 	if schema == "" || table == "" {
 		return errors.New("schema/table is empty")
 	}
 
 	query := fmt.Sprintf("truncate table `%s`.`%s`;", schema, table)
-	rows, err := querySQL(db, query)
+	rows, err := querySQL(conn.db, query)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -191,41 +199,41 @@ func truncateTable(db *sql.DB, schema string, table string) error {
 	return nil
 }
 
-func createDB(cfg DBConfig) (*sql.DB, error) {
+func createConn(cfg DBConfig) (*Conn, error) {
 	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8", cfg.User, cfg.Password, cfg.Host, cfg.Port)
 	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	return db, nil
+	return &Conn{db: db, skipConstraintCheck: false}, nil
 }
 
-func closeDB(db *sql.DB) error {
-	if db == nil {
+func closeConn(conn *Conn) error {
+	if conn.db == nil {
 		return nil
 	}
 
-	return errors.Trace(db.Close())
+	return errors.Trace(conn.db.Close())
 }
 
-func createDBs(cfg DBConfig, count int) ([]*sql.DB, error) {
-	dbs := make([]*sql.DB, 0, count)
+func createConns(cfg DBConfig, count int) ([]*Conn, error) {
+	conns := make([]*Conn, 0, count)
 	for i := 0; i < count; i++ {
-		db, err := createDB(cfg)
+		conn, err := createConn(cfg)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
 
-		dbs = append(dbs, db)
+		conns = append(conns, conn)
 	}
 
-	return dbs, nil
+	return conns, nil
 }
 
-func closeDBs(dbs ...*sql.DB) {
-	for _, db := range dbs {
-		err := closeDB(db)
+func closeConns(conns ...*Conn) {
+	for _, conn := range conns {
+		err := closeConn(conn)
 		if err != nil {
 			log.Errorf("close db failed - %v", err)
 		}
