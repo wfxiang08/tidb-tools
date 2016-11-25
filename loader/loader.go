@@ -564,6 +564,11 @@ func (l *Loader) restoreData() error {
 		}
 	}
 
+	log.Infof("All data files has restored, remove checkpoint file loader.checkpoint.")
+	if err := os.Remove(l.cfg.CheckPoint); err != nil {
+		log.Errorf("Remove checkpoint file [%s] failed, err [%v]", l.cfg.CheckPoint, err)
+	}
+
 	return nil
 }
 
