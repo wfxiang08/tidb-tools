@@ -16,13 +16,13 @@ package main
 import (
 	"os"
 	"sync"
-
-	"bufio"
-	"fmt"
-	"github.com/juju/errors"
-	"github.com/ngaut/log"
 	"io"
 	"strings"
+	"bufio"
+	"fmt"
+
+	"github.com/juju/errors"
+	"github.com/ngaut/log"
 )
 
 type CheckPoint struct {
