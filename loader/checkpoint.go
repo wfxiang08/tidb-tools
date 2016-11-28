@@ -14,12 +14,12 @@
 package main
 
 import (
-	"os"
-	"sync"
-	"io"
-	"strings"
 	"bufio"
 	"fmt"
+	"io"
+	"os"
+	"strings"
+	"sync"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"

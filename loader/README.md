@@ -16,7 +16,7 @@ Usage of loader:
   -checkpoint string
     	Loader saved checkpoint (default "loader.checkpoint")
   -skip-unique-check
-        Skip unique index check (default 0)
+    	Skip unique index check (default 0)
   -p string
     	User password
   -pprof-addr string
