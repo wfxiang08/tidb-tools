@@ -111,7 +111,6 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 			rerr := txn.Rollback()
 			if rerr != nil {
 				log.Errorf("[exec][sql]%-.100s[error]%v", sqls, rerr)
-				return rerr
 			}
 			return err
 		}
