@@ -81,7 +81,7 @@ func (s *testSyncerSuite) resetMaster() {
 }
 
 func (s *testSyncerSuite) TestSelectDB(c *C) {
-	s.cfg.DoDB = []string{"~^b.*", "s1", "test"}
+	s.cfg.DoDB = []string{"~^b.*", "s1", "stest"}
 	sqls := []string{
 		"create database s1",
 		"drop database s1",
@@ -91,10 +91,10 @@ func (s *testSyncerSuite) TestSelectDB(c *C) {
 		"drop database btest",
 		"create database b1",
 		"drop database b1",
-		"create database test",
-		"drop database test",
-		"create database t",
-		"drop database t",
+		"create database stest",
+		"drop database stest",
+		"create database st",
+		"drop database st",
 	}
 	res := []bool{false, false, true, true, false, false, false, false, false, false, true, true}
 

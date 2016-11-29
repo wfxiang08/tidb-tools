@@ -61,5 +61,13 @@ port = 4000
 ./bin/syncer -config=syncer/config.toml
 ```
 
+## Notification 
+
+now syncer only supports ROW binlog format, doesn't supports GTID. You should make sure table has primary key or index, otherwise while syncer restart,it may inserts some duplicate data.
+
+meta information save the position that had been synchronized. but it maybe not the latest position because syncer saves position information in memory firstly for performance.
+
+syncer supports use regex expression to select database or table. the [Syntax reference](https://github.com/google/re2/wiki/Syntax) show some syntax are not supported.
+
 ## License
 Apache 2.0 license. See the [LICENSE](../LICENSE) file for details.

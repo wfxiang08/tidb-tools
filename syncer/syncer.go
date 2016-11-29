@@ -346,19 +346,19 @@ func (s *Syncer) getTable(schema string, table string) (*table, error) {
 	return t, nil
 }
 
-func (s *Syncer) addCount(tp opType) {
+func (s *Syncer) addCount(tp opType, n int64) {
 	switch tp {
 	case insert:
-		s.insertCount.Add(1)
+		s.insertCount.Add(n)
 	case update:
-		s.updateCount.Add(1)
+		s.updateCount.Add(n)
 	case del:
-		s.deleteCount.Add(1)
+		s.deleteCount.Add(n)
 	case ddl:
-		s.ddlCount.Add(1)
+		s.ddlCount.Add(n)
 	}
 
-	s.count.Add(1)
+	s.count.Add(n)
 }
 
 func (s *Syncer) checkWait(job *job) bool {
@@ -405,6 +405,22 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 	sqls := make([]string, 0, count)
 	args := make([][]interface{}, 0, count)
 	lastSyncTime := time.Now()
+	tpCnt := make(map[opType]int64)
+
+	clearF := func() {
+		for i := 0; i < idx; i++ {
+			s.jobWg.Done()
+		}
+
+		idx = 0
+		sqls = sqls[0:0]
+		args = args[0:0]
+		lastSyncTime = time.Now()
+		for tpName, v := range tpCnt {
+			s.addCount(tpName, v)
+			tpCnt[tpName] = 0
+		}
+	}
 
 	var err error
 	for {
@@ -413,7 +429,6 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 			if !ok {
 				return
 			}
-
 			idx++
 
 			if job.tp == ddl {
@@ -431,13 +446,13 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 					}
 				}
 
-				idx = 0
-				sqls = sqls[0:0]
-				args = args[0:0]
-				lastSyncTime = time.Now()
+				tpCnt[job.tp]++
+				clearF()
+
 			} else {
 				sqls = append(sqls, job.sql)
 				args = append(args, job.args)
+				tpCnt[job.tp]++
 			}
 
 			if idx >= count {
@@ -445,15 +460,9 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 				if err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
-
-				idx = 0
-				sqls = sqls[0:0]
-				args = args[0:0]
-				lastSyncTime = time.Now()
+				clearF()
 			}
 
-			s.addCount(job.tp)
-			s.jobWg.Done()
 		default:
 			now := time.Now()
 			if now.Sub(lastSyncTime) >= maxWaitTime {
@@ -461,11 +470,7 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 				if err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
-
-				idx = 0
-				sqls = sqls[0:0]
-				args = args[0:0]
-				lastSyncTime = now
+				clearF()
 			}
 
 			time.Sleep(waitTime)
