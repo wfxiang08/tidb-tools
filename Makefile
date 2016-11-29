@@ -1,8 +1,8 @@
 GO := GO15VENDOREXPERIMENT="1" go
 
-.PHONY: build importer syncer checker test check deps
+.PHONY: build importer syncer checker loader test check deps
 
-build: importer syncer checker check test
+build: importer syncer checker loader check test
 
 importer:
 	$(GO) build -o bin/importer ./importer
@@ -12,6 +12,9 @@ syncer:
 
 checker:
 	$(GO) build -o bin/checker ./checker
+
+loader:
+	$(GO) build -o bin/loader ./loader
 
 test:
 
