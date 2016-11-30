@@ -42,6 +42,8 @@ var (
 
 	waitTime    = 50 * time.Millisecond
 	maxWaitTime = 1 * time.Second
+
+	BatchSize = 64 * 1024
 )
 
 type DataFiles []string
@@ -329,6 +331,68 @@ func (l *Loader) dispatchSQL(file string, schema string, table string, checkExis
 	return nil
 }
 
+func (l *Loader) dispatchSQL2(file string, schema string, table string, checkExist bool) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer f.Close()
+
+	var insertInto string
+	if checkExist {
+		insertInto = fmt.Sprintf("INSERT IGNORE INTO `%s`.`%s` VALUES", schema, table)
+	} else {
+		insertInto = fmt.Sprintf("INSERT INTO `%s`.`%s` VALUES", schema, table)
+	}
+
+	data := make([]byte, 0, 1024*1024)
+	br := bufio.NewReader(f)
+	for {
+		line, err := br.ReadString('\n')
+		if err == io.EOF {
+			break
+		} else {
+			readLine := strings.TrimSpace(line[:len(line)-1])
+			if len(readLine) == 0 {
+				continue
+			}
+
+			if len(data) == 0 {
+				data = append(data, []byte(insertInto)...)
+			}
+			idx := strings.Index(readLine, "VALUES")
+			if idx >= 0 {
+				data = append(data, []byte(readLine)[idx+len("VALUES"):]...)
+			} else {
+				data = append(data, []byte(readLine)...)
+			}
+			if data[len(data)-1] == ';' || (len(data) >= BatchSize && data[len(data)-2] == ')' && data[len(data)-1] == ',') {
+				if data[len(data)-2] == ')' && data[len(data)-1] == ',' {
+					data[len(data)-1] = ';'
+				}
+
+				query := string(data)
+				data = data[0:0]
+				if strings.HasPrefix(query, "/*") && strings.HasSuffix(query, "*/;") {
+					continue
+				}
+
+				j := &job{
+					sql:                 query,
+					schema:              schema,
+					skipConstraintCheck: l.cfg.SkipConstraintCheck == 1,
+				}
+				if checkExist {
+					j.skipConstraintCheck = false
+				}
+				l.dispatchJob(j)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (l *Loader) runWorker(conn *Conn, queue chan *job) {
 	defer l.wg.Done()
 
@@ -425,7 +489,7 @@ func (l *Loader) redoTruncatedContents(schema string, table string, dataFiles []
 func (l *Loader) restoreDataFile(path string, dataFile string, schema string, table string, checkExist bool) error {
 	log.Infof("[loader][restore table data sql]%s/%s[start]", path, dataFile)
 
-	err := l.dispatchSQL(fmt.Sprintf("%s/%s", path, dataFile), schema, table, checkExist)
+	err := l.dispatchSQL2(fmt.Sprintf("%s/%s", path, dataFile), schema, table, checkExist)
 	if err != nil {
 		return errors.Trace(err)
 	}
