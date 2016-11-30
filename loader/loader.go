@@ -357,15 +357,7 @@ func (l *Loader) dispatchSQL2(file string, schema string, table string, checkExi
 				continue
 			}
 
-			if len(data) == 0 {
-				data = append(data, []byte(insertInto)...)
-			}
-			idx := strings.Index(readLine, "VALUES")
-			if idx >= 0 {
-				data = append(data, []byte(readLine)[idx+len("VALUES"):]...)
-			} else {
-				data = append(data, []byte(readLine)...)
-			}
+			data = append(data, []byte(readLine)...)
 			if data[len(data)-1] == ';' || (len(data) >= BatchSize && data[len(data)-2] == ')' && data[len(data)-1] == ',') {
 				if data[len(data)-2] == ')' && data[len(data)-1] == ',' {
 					data[len(data)-1] = ';'
@@ -377,8 +369,17 @@ func (l *Loader) dispatchSQL2(file string, schema string, table string, checkExi
 					continue
 				}
 
+				var values string
+				idx := strings.Index(query, "VALUES")
+				if idx >= 0 {
+					values = query[idx+len("VALUES"):]
+				} else {
+					values = query
+				}
+				sql := fmt.Sprintf("%s %s", insertInto, values)
+
 				j := &job{
-					sql:                 query,
+					sql:                 sql,
 					schema:              schema,
 					skipConstraintCheck: l.cfg.SkipConstraintCheck == 1,
 				}
