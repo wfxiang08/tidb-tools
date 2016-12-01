@@ -19,7 +19,6 @@ import (
 	"github.com/pingcap/tidb/context"
 	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/mysql"
-	"github.com/pingcap/tidb/sessionctx/db"
 )
 
 var (
@@ -391,6 +390,25 @@ func (n *CreateUserStmt) Accept(v Visitor) (Node, bool) {
 	return v.Leave(n)
 }
 
+// DropUserStmt creates user account.
+// See http://dev.mysql.com/doc/refman/5.7/en/drop-user.html
+type DropUserStmt struct {
+	stmtNode
+
+	IfExists bool
+	UserList []string
+}
+
+// Accept implements Node Accept interface.
+func (n *DropUserStmt) Accept(v Visitor) (Node, bool) {
+	newNode, skipChildren := v.Enter(n)
+	if skipChildren {
+		return v.Leave(newNode)
+	}
+	n = newNode.(*DropUserStmt)
+	return v.Leave(n)
+}
+
 // DoStmt is the struct for DO statement.
 type DoStmt struct {
 	stmtNode
@@ -546,7 +564,7 @@ func (i Ident) Full(ctx context.Context) (full Ident) {
 	if i.Schema.O != "" {
 		full.Schema = i.Schema
 	} else {
-		full.Schema = model.NewCIStr(db.GetCurrentSchema(ctx))
+		full.Schema = model.NewCIStr(ctx.GetSessionVars().CurrentDB)
 	}
 	return
 }
