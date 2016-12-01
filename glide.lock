@@ -1,5 +1,5 @@
 hash: 2b5fbb99ef4643e3e08d384c04c8288b811c4ae8c18615fbe95152afd86359b3
-updated: 2016-10-09T19:53:08.088074356+08:00
+updated: 2016-12-01T09:54:46.988665354+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -8,7 +8,7 @@ imports:
 - name: github.com/BurntSushi/toml
   version: 99064174e013895bbd9b025c31100bd1d9b590ca
 - name: github.com/go-sql-driver/mysql
-  version: 0b58b37b664c21f3010e836f1b931e1d0b0b0685
+  version: 4ac31a97ccff97de60ba3c630bfb4733c1bb6d0e
 - name: github.com/golang/protobuf
   version: 874264fbbb43f4d91e999fecb4b40143ed611400
   subpackages:
@@ -29,7 +29,7 @@ imports:
   subpackages:
   - llrb
 - name: github.com/pingcap/goleveldb
-  version: c131135d59a38f4212f627cde570dddfe5261c43
+  version: 158edde5a354460121af007d02a00b01c8d03443
   subpackages:
   - leveldb
   - leveldb/cache
@@ -44,7 +44,7 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/pingcap/tidb
-  version: 8930ed05b171f6b3c04c7cea51759195329893ec
+  version: 1bca0246016f5df6e3d3f8754f3d0757e4c678f2
   subpackages:
   - ast
   - context
@@ -62,8 +62,8 @@ imports:
   - perfschema
   - plan/statistics
   - sessionctx/binloginfo
-  - sessionctx/db
   - sessionctx/variable
+  - sessionctx/varsutil
   - structure
   - table
   - table/tables
@@ -74,12 +74,14 @@ imports:
   - util/codec
   - util/distinct
   - util/hack
+  - util/mock
   - util/stringutil
   - util/types
 - name: github.com/pingcap/tipb
-  version: 29c61e269421d62b8e7dabca58ebd00e84b06dc2
+  version: 17699c2d5e3b549d85eec896afd9d4f87879b0eb
   subpackages:
   - go-binlog
+  - go-tipb
 - name: github.com/prometheus/client_golang
   version: c5b7fccd204277076155f10851dad72b76a49317
   subpackages:
@@ -106,7 +108,7 @@ imports:
   - ioutil2
   - sync2
 - name: github.com/siddontang/go-mysql
-  version: d8e777f00cdbb2bc200ebeb80364b0bcc098362e
+  version: c613854ad91bd232088dffa070efd4d022fc3152
   subpackages:
   - client
   - mysql
@@ -147,4 +149,6 @@ imports:
   - naming
   - peer
   - transport
-testImports: []
+testImports:
+- name: github.com/pingcap/check
+  version: 9b266636177e249ec28b0aeffe8e86bc272bb481
