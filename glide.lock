@@ -1,5 +1,5 @@
-hash: 2b5fbb99ef4643e3e08d384c04c8288b811c4ae8c18615fbe95152afd86359b3
-updated: 2016-12-01T09:54:46.988665354+08:00
+hash: 581b7aa84b2bcc394e5aa3f5b3c8b7dbc44894a83fd80dbe90fa02096719763e
+updated: 2016-12-01T10:56:30.512127994+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -117,11 +117,12 @@ imports:
 - name: github.com/twinj/uuid
   version: 70cac2bcd273ef6a371bb96cde363d28b68734c3
 - name: golang.org/x/net
-  version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
+  version: 4971afdc2f162e82d185353533d3cf16188a9f4e
   subpackages:
   - context
   - http2
   - http2/hpack
+  - idna
   - internal/timeseries
   - lex/httplex
   - trace

@@ -1,10 +1,15 @@
 package: github.com/pingcap/tidb-tools
 import:
 - package: github.com/BurntSushi/toml
+  version: 99064174e013895bbd9b025c31100bd1d9b590ca
 - package: github.com/go-sql-driver/mysql
+  version: 4ac31a97ccff97de60ba3c630bfb4733c1bb6d0e
 - package: github.com/juju/errors
+  version: 6f54ff6318409d31ff16261533ce2c8381a4fd5d
 - package: github.com/ngaut/log
+  version: cec23d3e10b016363780d894a0eb732a12c06e02
 - package: github.com/pingcap/tidb
+  version: 1bca0246016f5df6e3d3f8754f3d0757e4c678f2
   subpackages:
   - ast
   - ddl
@@ -15,13 +20,16 @@ import:
   - util/charset
   - util/types
 - package: github.com/siddontang/go-mysql
+  version: c613854ad91bd232088dffa070efd4d022fc3152
   subpackages:
   - mysql
   - replication
 - package: github.com/siddontang/go
+  version: 354e14e6c093c661abb29fd28403b3c19cff5514
   subpackages:
   - ioutil2
   - sync2
 - package: golang.org/x/net
+  version: 4971afdc2f162e82d185353533d3cf16188a9f4e
   subpackages:
   - context
