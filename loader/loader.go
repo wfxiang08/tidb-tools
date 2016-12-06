@@ -23,10 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	tidb "github.com/pingcap/tidb/mysql"
 	"github.com/siddontang/go/sync2"
 )
 
@@ -480,9 +478,8 @@ func (l *Loader) restoreData() error {
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
 		err = l.restoreSchema(l.conns[0], dbFile, "")
 		if err != nil {
-			err = causeErr(err)
-			if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrDBCreateExists {
-				log.Warnf("run db schema failed - %v", errors.ErrorStack(err))
+			if isErrDbTableExists(err) {
+				log.Infof("[loader][database already exists, skip]%s", dbFile)
 			} else {
 				log.Fatalf("run db schema failed - %v", errors.ErrorStack(err))
 			}
@@ -501,9 +498,8 @@ func (l *Loader) restoreData() error {
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
 			err := l.restoreSchema(l.conns[0], tableFile, db)
 			if err != nil {
-				err = causeErr(err)
-				if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrTableExists {
-					log.Warnf("run table schema failed - %v", errors.ErrorStack(err))
+				if isErrDbTableExists(err) {
+					log.Infof("[loader][table already exists, skip]%s", tableFile)
 					if !l.restoreFromCheckpoint {
 						l.restoreFromCheckpoint = true
 					}
