@@ -82,14 +82,8 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 
 		return nil
 	}
-	if err != nil {
-		if !(isErrDBExists(err) || isErrTableExists(err)) {
-			log.Errorf("exec sqls[%-.100v] failed %v", sqls, errors.ErrorStack(err))
-		}
-		return errors.Trace(err)
-	}
 
-	return errors.Errorf("exec sqls[%-.100v] failed", sqls)
+	return errors.Trace(err)
 }
 
 func executeSQLImp(db *sql.DB, sqls []string) error {
@@ -109,9 +103,7 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 
 		_, err = txn.Exec(sqls[i])
 		if err != nil {
-			if !(isErrDBExists(err) || isErrTableExists(err)) {
-				log.Warnf("[exec][sql]%-.100v[error]%v", sqls, err)
-			}
+			log.Warnf("[exec][sql]%-.100v[error]%v", sqls, err)
 			rerr := txn.Rollback()
 			if rerr != nil {
 				log.Errorf("[exec][sql]%-.100s[error]%v", sqls, rerr)
