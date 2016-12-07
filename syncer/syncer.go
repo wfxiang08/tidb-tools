@@ -21,12 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/net/context"
-
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 	"github.com/siddontang/go-mysql/replication"
 	"github.com/siddontang/go/sync2"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -553,7 +552,17 @@ func (s *Syncer) skipRowEvent(schema string, table string) bool {
 func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 	sql = strings.ToUpper(sql)
 
+	// For mariadb, for query event, like `# Dumm`
+	// But i don't know what is the meaning of this event.
+	if strings.HasPrefix(sql, "#") {
+		return true
+	}
+
 	if strings.HasPrefix(sql, "GRANT REPLICATION SLAVE ON") {
+		return true
+	}
+
+	if strings.HasPrefix(sql, "GRANT ALL PRIVILEGES ON") {
 		return true
 	}
 
