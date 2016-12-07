@@ -21,7 +21,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	tidb "github.com/pingcap/tidb/mysql"
+	tmysql "github.com/pingcap/tidb/mysql"
 )
 
 type Conn struct {
@@ -245,7 +245,7 @@ func closeConns(conns ...*Conn) {
 
 func isErrDBExists(err error) bool {
 	err = causeErr(err)
-	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrDBCreateExists {
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tmysql.ErrDBCreateExists {
 		return true
 	}
 	return false
@@ -253,7 +253,7 @@ func isErrDBExists(err error) bool {
 
 func isErrTableExists(err error) bool {
 	err = causeErr(err)
-	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrTableExists {
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tmysql.ErrTableExists {
 		return true
 	}
 	return false
