@@ -478,7 +478,7 @@ func (l *Loader) restoreData() error {
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
 		err = l.restoreSchema(l.conns[0], dbFile, "")
 		if err != nil {
-			if isErrDbTableExists(err) {
+			if isErrDBExists(err) {
 				log.Infof("[loader][database already exists, skip]%s", dbFile)
 			} else {
 				log.Fatalf("run db schema failed - %v", errors.ErrorStack(err))
@@ -498,7 +498,7 @@ func (l *Loader) restoreData() error {
 			log.Infof("[loader][run table schema]%s[start]", tableFile)
 			err := l.restoreSchema(l.conns[0], tableFile, db)
 			if err != nil {
-				if isErrDbTableExists(err) {
+				if isErrTableExists(err) {
 					log.Infof("[loader][table already exists, skip]%s", tableFile)
 					if !l.restoreFromCheckpoint {
 						l.restoreFromCheckpoint = true

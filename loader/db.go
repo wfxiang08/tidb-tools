@@ -83,7 +83,7 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 		return nil
 	}
 	if err != nil {
-		if !isErrDbTableExists(err) {
+		if !(isErrDBExists(err) || isErrTableExists(err)) {
 			log.Errorf("exec sqls[%-.100v] failed %v", sqls, errors.ErrorStack(err))
 		}
 		return errors.Trace(err)
@@ -109,7 +109,7 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 
 		_, err = txn.Exec(sqls[i])
 		if err != nil {
-			if !isErrDbTableExists(err) {
+			if !(isErrDBExists(err) || isErrTableExists(err)) {
 				log.Warnf("[exec][sql]%-.100v[error]%v", sqls, err)
 			}
 			rerr := txn.Rollback()
@@ -243,9 +243,17 @@ func closeConns(conns ...*Conn) {
 	}
 }
 
-func isErrDbTableExists(err error) bool {
+func isErrDBExists(err error) bool {
 	err = causeErr(err)
-	if e, ok := err.(*mysql.MySQLError); ok && (e.Number == tidb.ErrDBCreateExists || e.Number == tidb.ErrTableExists) {
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrDBCreateExists {
+		return true
+	}
+	return false
+}
+
+func isErrTableExists(err error) bool {
+	err = causeErr(err)
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tidb.ErrTableExists {
 		return true
 	}
 	return false
