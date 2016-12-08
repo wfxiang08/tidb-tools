@@ -18,9 +18,10 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	tmysql "github.com/pingcap/tidb/mysql"
 )
 
 type Conn struct {
@@ -71,7 +72,6 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
-
 			log.Warnf("exec sql retry %d - %-.100v", i, sqls)
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
@@ -82,12 +82,8 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 
 		return nil
 	}
-	if err != nil {
-		log.Errorf("exec sqls[%-.100v] failed %v", sqls, errors.ErrorStack(err))
-		return errors.Trace(err)
-	}
 
-	return errors.Errorf("exec sqls[%-.100v] failed", sqls)
+	return errors.Trace(err)
 }
 
 func executeSQLImp(db *sql.DB, sqls []string) error {
@@ -237,4 +233,20 @@ func closeConns(conns ...*Conn) {
 			log.Errorf("close db failed - %v", err)
 		}
 	}
+}
+
+func isErrDBExists(err error) bool {
+	err = causeErr(err)
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tmysql.ErrDBCreateExists {
+		return true
+	}
+	return false
+}
+
+func isErrTableExists(err error) bool {
+	err = causeErr(err)
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tmysql.ErrTableExists {
+		return true
+	}
+	return false
 }
