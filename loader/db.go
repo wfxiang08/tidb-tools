@@ -25,8 +25,7 @@ import (
 )
 
 type Conn struct {
-	db                  *sql.DB
-	skipConstraintCheck bool
+	db *sql.DB
 }
 
 func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
@@ -58,25 +57,13 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 		retryCount = maxRetryCount
 	}
 
-	if skipConstraintCheck != conn.skipConstraintCheck {
-		if skipConstraintCheck {
-			_, err = querySQL(conn.db, "set @@session.tidb_skip_constraint_check=1;")
-		} else {
-			_, err = querySQL(conn.db, "set @@session.tidb_skip_constraint_check=0;")
-		}
-		if err != nil {
-			return errors.Trace(err)
-		}
-		conn.skipConstraintCheck = skipConstraintCheck
-	}
-
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
 			log.Warnf("exec sql retry %d - %-.100v", i, sqls)
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
-		if err = executeSQLImp(conn.db, sqls); err != nil {
+		if err = executeSQLImp(conn.db, sqls, skipConstraintCheck); err != nil {
 			continue
 		}
 
@@ -86,7 +73,7 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 	return errors.Trace(err)
 }
 
-func executeSQLImp(db *sql.DB, sqls []string) error {
+func executeSQLImp(db *sql.DB, sqls []string, skipConstraintCheck bool) error {
 	var (
 		err error
 		txn *sql.Tx
@@ -95,6 +82,18 @@ func executeSQLImp(db *sql.DB, sqls []string) error {
 	txn, err = db.Begin()
 	if err != nil {
 		log.Errorf("exec sqls[%-.100v] begin failed %v", sqls, errors.ErrorStack(err))
+		return err
+	}
+
+	// If the database has a concept of per-connection state, such state can only be reliably
+	// observed within a transaction.
+	if skipConstraintCheck {
+		_, err = txn.Exec("set @@session.tidb_skip_constraint_check=1;")
+	} else {
+		_, err = txn.Exec("set @@session.tidb_skip_constraint_check=0;")
+	}
+	if err != nil {
+		log.Errorf("exec set session.tidb_skip_constraint_check failed %v", errors.ErrorStack(err))
 		return err
 	}
 
@@ -201,7 +200,7 @@ func createConn(cfg DBConfig) (*Conn, error) {
 		return nil, errors.Trace(err)
 	}
 
-	return &Conn{db: db, skipConstraintCheck: false}, nil
+	return &Conn{db: db}, nil
 }
 
 func closeConn(conn *Conn) error {
