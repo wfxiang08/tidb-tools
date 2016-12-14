@@ -1,0 +1,30 @@
+# Loader log level
+log-level = "info"
+
+# Loader log file
+log-file = ""
+
+# Directory of the dump to import
+dir = "./"
+
+# Loader saved checkpoint
+checkpoint = "loader.checkpoint"
+
+# Loader pprof addr
+pprof-addr = ":10084"
+
+# Number of threads to use
+worker = 4
+
+# Number of queries per transcation
+batch = 1000
+
+# Skip unique index check
+skip-unique-check = 0
+
+# DB config
+[db]
+host = "127.0.0.1"
+user = "root"
+password = ""
+port = 4000
