@@ -70,6 +70,8 @@ func (s *testSyncerSuite) SetUpSuite(c *C) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	s.db.Exec("SET GLOBAL binlog_format = 'ROW';")
 }
 
 func (s *testSyncerSuite) TearDownSuite(c *C) {
@@ -119,6 +121,9 @@ func (s *testSyncerSuite) TestSelectDB(c *C) {
 			continue
 		}
 		sql := string(ev.Query)
+		if syncer.skipQueryEvent(sql, string(ev.Schema)) {
+			continue
+		}
 		r := syncer.skipQueryDDL(sql, string(ev.Schema))
 		c.Assert(r, Equals, res[i])
 		i++
@@ -193,12 +198,16 @@ func (s *testSyncerSuite) TestSelectTable(c *C) {
 		switch ev := e.Event.(type) {
 		case *replication.QueryEvent:
 			query := string(ev.Query)
+			if syncer.skipQueryEvent(query, string(ev.Schema)) {
+				continue
+			}
+
 			querys, ok, err := resolveDDLSQL(query)
 			if !ok {
 				continue
 			}
 			if err != nil {
-				log.Fatal("ResolveDDlSQL failed %v", err)
+				log.Fatalf("ResolveDDlSQL failed %v", err)
 			}
 			for j, q := range querys {
 				r := syncer.skipQueryDDL(q, string(ev.Schema))

@@ -15,6 +15,7 @@ package main
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"hash/crc32"
 	"reflect"
@@ -28,6 +29,7 @@ import (
 	"github.com/pingcap/tidb/ast"
 	tddl "github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/infoschema"
+	tmysql "github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/parser"
 	"github.com/pingcap/tidb/terror"
 	gmysql "github.com/siddontang/go-mysql/mysql"
@@ -461,6 +463,29 @@ func parserDDLTableName(sql string) (TableName, error) {
 	return res, nil
 }
 
+func isRetryableError(err error) bool {
+	if err == driver.ErrBadConn {
+		return true
+	}
+	var e error
+	for {
+		e = errors.Cause(err)
+		if err == e {
+			break
+		}
+		err = e
+	}
+	mysqlErr, ok := err.(*mysql.MySQLError)
+	if ok {
+		if mysqlErr.Number == tmysql.ErrUnknown {
+			return true
+		}
+		return false
+	}
+
+	return true
+}
+
 func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 	var (
 		err  error
@@ -477,6 +502,9 @@ func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 
 		rows, err = db.Query(query)
 		if err != nil {
+			if !isRetryableError(err) {
+				return rows, errors.Trace(err)
+			}
 			log.Warnf("[query][sql]%s[error]%v", query, err)
 			continue
 		}
@@ -525,6 +553,14 @@ LOOP:
 
 			_, err = txn.Exec(sqls[i], args[i]...)
 			if err != nil {
+				if !isRetryableError(err) {
+					rerr := txn.Rollback()
+					if rerr != nil {
+						log.Errorf("[exec][sql]%s[args]%v[error]%v", sqls[i], args[i], rerr)
+					}
+					break LOOP
+				}
+
 				log.Warnf("[exec][sql]%s[args]%v[error]%v", sqls[i], args[i], err)
 				rerr := txn.Rollback()
 				if rerr != nil {
@@ -533,7 +569,6 @@ LOOP:
 				continue LOOP
 			}
 		}
-
 		err = txn.Commit()
 		if err != nil {
 			log.Errorf("exec sqls[%v] commit failed %v", sqls, errors.ErrorStack(err))
