@@ -87,7 +87,7 @@ func (c *checker) getTables() error {
 }
 
 func (c *checker) getCreateTable(tn string) (string, error) {
-	stmt := fmt.Sprintf("show create table %s;", tn)
+	stmt := fmt.Sprintf("show create table `%s`;", tn)
 	rs, err := querySQL(c.db, stmt)
 	if err != nil {
 		return "", errors.Trace(err)
