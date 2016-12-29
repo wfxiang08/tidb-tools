@@ -141,6 +141,8 @@ func (s *testSyncerSuite) TestSelectTable(c *C) {
 		"create table s1.log(id int)",
 		"drop database s1",
 
+		"create table mysql.test(id int)",
+		"drop table mysql.test",
 		"create database stest",
 		"create table stest.log(id int)",
 		"create table stest.t(id int)",
@@ -162,6 +164,8 @@ func (s *testSyncerSuite) TestSelectTable(c *C) {
 		{true},
 		{true},
 
+		{true},
+		{true},
 		{false},
 		{false},
 		{false},

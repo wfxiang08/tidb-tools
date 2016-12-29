@@ -31,11 +31,12 @@ import (
 var (
 	maxRetryCount = 100
 
-	retryTimeout = 3 * time.Second
-	waitTime     = 10 * time.Millisecond
-	maxWaitTime  = 3 * time.Second
-	eventTimeout = 3 * time.Second
-	statusTime   = 30 * time.Second
+	retryTimeout    = 3 * time.Second
+	waitTime        = 10 * time.Millisecond
+	maxWaitTime     = 3 * time.Second
+	eventTimeout    = 3 * time.Second
+	statusTime      = 30 * time.Second
+	defaultIgnoreDB = "mysql"
 )
 
 // Syncer can sync your MySQL data into another MySQL database.
@@ -530,6 +531,10 @@ func (s *Syncer) matchTable(patternTBS []TableName, tb TableName) bool {
 }
 
 func (s *Syncer) skipRowEvent(schema string, table string) bool {
+	if schema == defaultIgnoreDB {
+		return true
+	}
+
 	if s.cfg.DoTable != nil || s.cfg.DoDB != nil {
 		table = strings.ToLower(table)
 		//if table in tartget Table, do this event
@@ -570,6 +575,10 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 		return true
 	}
 
+	if schema == defaultIgnoreDB {
+		return true
+	}
+
 	return false
 }
 
@@ -584,6 +593,11 @@ func (s *Syncer) skipQueryDDL(sql string, schema string) bool {
 		if tb.Schema == "" {
 			tb.Schema = schema
 		}
+
+		if tb.Schema == defaultIgnoreDB {
+			return true
+		}
+
 		if s.matchTable(s.cfg.DoTable, tb) {
 			return false
 		}

@@ -379,7 +379,7 @@ func isDDLSQL(sql string) (bool, error) {
 func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 	stmt, err := parser.New().ParseOneStmt(sql, "", "")
 	if err != nil {
-		log.Errorf("Resolve DDL SQL error: %s", sql)
+		log.Errorf("Parser SQL error: %s", sql)
 		return nil, false, errors.Trace(err)
 	}
 
