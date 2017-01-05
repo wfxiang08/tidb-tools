@@ -14,6 +14,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
@@ -165,7 +166,8 @@ func findColumns(columns []*column, indexColumns []string) []*column {
 func genColumnList(columns []*column) string {
 	var columnList []byte
 	for i, column := range columns {
-		columnList = append(columnList, []byte(column.name)...)
+		name := fmt.Sprintf("`%s`", column.name)
+		columnList = append(columnList, []byte(name)...)
 
 		if i != len(columns)-1 {
 			columnList = append(columnList, ',')
@@ -212,7 +214,7 @@ func genInsertSQLs(schema string, table string, datas [][]interface{}, columns [
 			value = append(value, castUnsigned(data[i], columns[i].unsigned))
 		}
 
-		sql := fmt.Sprintf("replace into %s.%s (%s) values (%s);", schema, table, columnList, columnPlaceholders)
+		sql := fmt.Sprintf("replace into `%s`.`%s` (%s) values (%s);", schema, table, columnList, columnPlaceholders)
 		sqls = append(sqls, sql)
 		values = append(values, value)
 
@@ -235,7 +237,7 @@ func getColumnDatas(columns []*column, indexColumns []*column, data []interface{
 }
 
 func genWhere(columns []*column, data []interface{}) string {
-	var kvs []byte
+	var kvs bytes.Buffer
 	for i := range columns {
 		kvSplit := "="
 		if data[i] == nil {
@@ -243,26 +245,26 @@ func genWhere(columns []*column, data []interface{}) string {
 		}
 
 		if i == len(columns)-1 {
-			kvs = append(kvs, []byte(fmt.Sprintf("%s %s ?", columns[i].name, kvSplit))...)
+			fmt.Fprintf(&kvs, "`%s` %s ?", columns[i].name, kvSplit)
 		} else {
-			kvs = append(kvs, []byte(fmt.Sprintf("%s %s ? and ", columns[i].name, kvSplit))...)
+			fmt.Fprintf(&kvs, "`%s` %s ? and ", columns[i].name, kvSplit)
 		}
 	}
 
-	return string(kvs)
+	return kvs.String()
 }
 
 func genKVs(columns []*column) string {
-	var kvs []byte
+	var kvs bytes.Buffer
 	for i := range columns {
 		if i == len(columns)-1 {
-			kvs = append(kvs, []byte(fmt.Sprintf("%s = ?", columns[i].name))...)
+			fmt.Fprintf(&kvs, "`%s` = ?", columns[i].name)
 		} else {
-			kvs = append(kvs, []byte(fmt.Sprintf("%s = ?, ", columns[i].name))...)
+			fmt.Fprintf(&kvs, "`%s` = ?, ", columns[i].name)
 		}
 	}
 
-	return string(kvs)
+	return kvs.String()
 }
 
 func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
@@ -306,7 +308,7 @@ func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns [
 		where := genWhere(whereColumns, whereValues)
 		value = append(value, whereValues...)
 
-		sql := fmt.Sprintf("update %s.%s set %s where %s limit 1;", schema, table, kvs, where)
+		sql := fmt.Sprintf("update `%s`.`%s` set %s where %s limit 1;", schema, table, kvs, where)
 		sqls = append(sqls, sql)
 		values = append(values, value)
 
@@ -338,7 +340,7 @@ func genDeleteSQLs(schema string, table string, datas [][]interface{}, columns [
 		where := genWhere(whereColumns, whereValues)
 		values = append(values, whereValues)
 
-		sql := fmt.Sprintf("delete from %s.%s where %s limit 1;", schema, table, where)
+		sql := fmt.Sprintf("delete from `%s`.`%s` where %s limit 1;", schema, table, where)
 		sqls = append(sqls, sql)
 		keys = append(keys, genKeyList(whereColumns, whereValues))
 	}
@@ -398,12 +400,11 @@ func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 		for _, t := range v.Tables {
 			var db string
 			if t.Schema.O != "" {
-				db = fmt.Sprintf("%s.", t.Schema.O)
+				db = fmt.Sprintf("`%s`.", t.Schema.O)
 			}
-			s := fmt.Sprintf("drop table %s %s%s", ex, db, t.Name.L)
+			s := fmt.Sprintf("drop table %s %s`%s`", ex, db, t.Name.L)
 			sqls = append(sqls, s)
 		}
-
 	default:
 		sqls = append(sqls, sql)
 	}
@@ -423,7 +424,7 @@ func genDDLSQL(sql string, schema string) (string, error) {
 		return fmt.Sprintf("%s;", sql), nil
 	}
 
-	return fmt.Sprintf("use %s; %s;", schema, sql), nil
+	return fmt.Sprintf("use `%s`; %s;", schema, sql), nil
 }
 
 func genTableName(schema string, table string) TableName {

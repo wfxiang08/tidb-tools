@@ -203,7 +203,7 @@ func (s *Syncer) getTableColumns(db *sql.DB, table *table) error {
 		return errors.New("schema/table is empty")
 	}
 
-	query := fmt.Sprintf("show columns from %s.%s", table.schema, table.name)
+	query := fmt.Sprintf("show columns from `%s`.`%s`", table.schema, table.name)
 	rows, err := querySQL(db, query)
 	if err != nil {
 		return errors.Trace(err)
@@ -267,7 +267,7 @@ func (s *Syncer) getTableIndex(db *sql.DB, table *table) error {
 		return errors.New("schema/table is empty")
 	}
 
-	query := fmt.Sprintf("show index from %s.%s", table.schema, table.name)
+	query := fmt.Sprintf("show index from `%s`.`%s`", table.schema, table.name)
 	rows, err := querySQL(db, query)
 	if err != nil {
 		return errors.Trace(err)
