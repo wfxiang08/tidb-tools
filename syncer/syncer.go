@@ -563,6 +563,10 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 		return true
 	}
 
+	if strings.HasPrefix(sql, "SAVEPOINT") {
+		return true
+	}
+
 	if strings.HasPrefix(sql, "GRANT REPLICATION SLAVE ON") {
 		return true
 	}
