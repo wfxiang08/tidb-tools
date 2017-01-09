@@ -33,8 +33,8 @@ func (d *ddl) onCreateForeignKey(t *meta.Meta, job *model.Job) error {
 		job.State = model.JobCancelled
 		return errors.Trace(err)
 	}
+	fkInfo.ID = allocateIndexID(tblInfo)
 	tblInfo.ForeignKeys = append(tblInfo.ForeignKeys, &fkInfo)
-
 	ver, err := updateSchemaVersion(t, job)
 	if err != nil {
 		return errors.Trace(err)
@@ -52,7 +52,7 @@ func (d *ddl) onCreateForeignKey(t *meta.Meta, job *model.Job) error {
 		}
 		// Finish this job.
 		job.State = model.JobDone
-		addTableHistoryInfo(job, ver, tblInfo)
+		job.BinlogInfo.AddTableInfo(ver, tblInfo)
 		return nil
 	default:
 		return ErrInvalidForeignKeyState.Gen("invalid fk state %v", fkInfo.State)
@@ -114,7 +114,7 @@ func (d *ddl) onDropForeignKey(t *meta.Meta, job *model.Job) error {
 		}
 		// Finish this job.
 		job.State = model.JobDone
-		addTableHistoryInfo(job, ver, tblInfo)
+		job.BinlogInfo.AddTableInfo(ver, tblInfo)
 		return nil
 	default:
 		return ErrInvalidForeignKeyState.Gen("invalid fk state %v", fkInfo.State)

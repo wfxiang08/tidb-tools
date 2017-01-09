@@ -29,24 +29,24 @@ import (
 
 // Kind constants.
 const (
-	KindNull  byte = 0
-	KindInt64 byte = iota + 1
-	KindUint64
-	KindFloat32
-	KindFloat64
-	KindString
-	KindBytes
-	KindMysqlBit
-	KindMysqlDecimal
-	KindMysqlDuration
-	KindMysqlEnum
-	KindMysqlHex
-	KindMysqlSet
-	KindMysqlTime
-	KindRow
-	KindInterface
-	KindMinNotNull
-	KindMaxValue
+	KindNull          byte = 0
+	KindInt64         byte = 1
+	KindUint64        byte = 2
+	KindFloat32       byte = 3
+	KindFloat64       byte = 4
+	KindString        byte = 5
+	KindBytes         byte = 6
+	KindMysqlBit      byte = 7
+	KindMysqlDecimal  byte = 8
+	KindMysqlDuration byte = 9
+	KindMysqlEnum     byte = 10
+	KindMysqlHex      byte = 11
+	KindMysqlSet      byte = 12
+	KindMysqlTime     byte = 13
+	KindRow           byte = 14
+	KindInterface     byte = 15
+	KindMinNotNull    byte = 16
+	KindMaxValue      byte = 17
 )
 
 // Datum is a data box holds different kind of data.
@@ -986,9 +986,7 @@ func (d *Datum) convertToMysqlDecimal(sc *variable.StatementContext, target *Fie
 		} else if frac != target.Decimal {
 			dec.Round(dec, target.Decimal)
 			if frac > target.Decimal {
-				if sc.TruncateAsError {
-					err = errors.Trace(ErrTruncated)
-				}
+				err = errors.Trace(handleTruncateError(sc))
 			}
 		}
 	}
@@ -1556,4 +1554,15 @@ func (ds *datumsSorter) Less(i, j int) bool {
 
 func (ds *datumsSorter) Swap(i, j int) {
 	ds.datums[i], ds.datums[j] = ds.datums[j], ds.datums[i]
+}
+
+func handleTruncateError(sc *variable.StatementContext) error {
+	if sc.IgnoreTruncate {
+		return nil
+	}
+	if !sc.TruncateAsWarning {
+		return ErrTruncated
+	}
+	sc.AppendWarning(ErrTruncated)
+	return nil
 }

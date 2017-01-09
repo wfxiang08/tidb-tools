@@ -9,7 +9,7 @@ import:
 - package: github.com/ngaut/log
   version: cec23d3e10b016363780d894a0eb732a12c06e02
 - package: github.com/pingcap/tidb
-  version: f15333b8c7076e73cf231b9c7562d66126041e8d
+  version: cd98c551b4743d56e34a79e603fbf46a8ecd90a0
   subpackages:
   - ast
   - ddl

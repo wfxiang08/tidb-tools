@@ -1,5 +1,5 @@
-hash: a583076ca527715d75430a2b42fd66154b0f4d3ac19cabfeb795c8a15b018bf2
-updated: 2016-12-08T17:31:19.177840462+08:00
+hash: 25ceab0f69ea80de414f2b1d0f4d8e1a53f9e49a83e6b7031e04cc5a199a6f59
+updated: 2017-01-06T15:47:58.243584506+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -44,12 +44,12 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/pingcap/tidb
-  version: f15333b8c7076e73cf231b9c7562d66126041e8d
+  version: cd98c551b4743d56e34a79e603fbf46a8ecd90a0
   subpackages:
   - ast
   - context
   - ddl
-  - evaluator
+  - expression
   - infoschema
   - inspectkv
   - kv
@@ -149,6 +149,4 @@ imports:
   - naming
   - peer
   - transport
-testImports:
-- name: github.com/pingcap/check
-  version: 9b266636177e249ec28b0aeffe8e86bc272bb481
+testImports: []
