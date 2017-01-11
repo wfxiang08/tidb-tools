@@ -102,7 +102,7 @@ func (lm *LocalMeta) Save(pos mysql.Position, force bool) error {
 		}
 
 		lm.saveTime = time.Now()
-		log.Infof("syncer save position to file, BinLogName:%s BinLogPos:%s", lm.BinLogName, lm.BinLogPos)
+		log.Infof("syncer save position to file, BinLogName:%s BinLogPos:%d", lm.BinLogName, lm.BinLogPos)
 	}
 	return nil
 }
