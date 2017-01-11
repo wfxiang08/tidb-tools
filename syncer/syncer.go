@@ -704,6 +704,7 @@ func (s *Syncer) run() error {
 				return errors.Trace(err)
 			}
 
+			log.Debugf("schema: %s, table %s, columns %+v, index %+v, RowsEvent data: %v", table.schema, table.name, table.columns, table.indexColumns, ev.Rows)
 			var (
 				sqls []string
 				keys []string
