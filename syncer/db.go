@@ -296,6 +296,11 @@ func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns [
 			newValues = append(newValues, castUnsigned(newData[j], columns[j].unsigned))
 		}
 
+		// ignore newData == oldData
+		if len(updateColumns) == 0 {
+			continue
+		}
+
 		value := make([]interface{}, 0, len(oldData))
 		kvs := genKVs(updateColumns)
 		value = append(value, newValues...)
