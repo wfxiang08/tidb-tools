@@ -579,6 +579,10 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 		return true
 	}
 
+	if strings.HasPrefix(sql, "OPTIMIZE TABLE") {
+		return true
+	}
+
 	if schema == defaultIgnoreDB {
 		return true
 	}
