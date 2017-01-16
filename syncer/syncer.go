@@ -583,6 +583,10 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 		return true
 	}
 
+	if strings.HasPrefix(sql, "DROP TRIGGER") {
+		return true
+	}
+
 	if schema == defaultIgnoreDB {
 		return true
 	}
