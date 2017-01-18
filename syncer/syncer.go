@@ -381,6 +381,7 @@ func (s *Syncer) addJob(job *job) error {
 
 	s.jobWg.Add(1)
 
+	log.Debugf("add job [sql]%s; [position]%v", job.sql, job.pos)
 	idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
 	s.jobs[idx] <- job
 
