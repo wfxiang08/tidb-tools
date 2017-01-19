@@ -1,12 +1,16 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/ngaut/log"
 )
 
-var defaultIgnoreDB = "mysql"
+var (
+	defaultIgnoreDB = "mysql"
+	triggerRegex    = regexp.MustCompile(`(^CREATE (DEFINER=\S+ )*TRIGGER)`)
+)
 
 // whiteFilter whitelist filtering
 func (s *Syncer) whiteFilter(stbs []TableName) []TableName {
@@ -61,6 +65,21 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 		return true
 	}
 
+	if strings.HasPrefix(sql, "SAVEPOINT") {
+		return true
+	}
+
+	if strings.HasPrefix(sql, "OPTIMIZE TABLE") {
+		return true
+	}
+
+	if strings.HasPrefix(sql, "DROP TRIGGER") {
+		return true
+	}
+
+	if triggerRegex.FindStringIndex(sql) != nil {
+		return true
+	}
 	if schema == defaultIgnoreDB {
 		return true
 	}

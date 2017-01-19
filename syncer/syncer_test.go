@@ -387,3 +387,17 @@ func (s *testSyncerSuite) TestIgnoreTable(c *C) {
 	}
 	s.clearRules()
 }
+
+func (s *testSyncerSuite) TestQueryEvent(c *C) {
+
+	sqls := []string{
+		"CREATE DEFINER=`ab`@`%` TRIGGER `records` AFTER INSERT ON `other_records` FOR EACH ROW BEGIN   set @ret = http_get(concat('http://test/id/',new.id));",
+	}
+	syncer := NewSyncer(s.cfg)
+
+	res := []bool{true}
+	for i, sql := range sqls {
+		r := syncer.skipQueryEvent(sql, "")
+		c.Assert(r, Equals, res[i])
+	}
+}
