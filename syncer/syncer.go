@@ -770,16 +770,16 @@ func (s *Syncer) run() error {
 
 			log.Debugf("[query]%s", sql)
 
+			lastPos := pos
+			pos.Pos = e.Header.LogPos
 			sqls, ok, err := resolveDDLSQL(sql)
 			if err != nil {
-				return errors.Errorf("parse query event failed: %v", err)
+				return errors.Errorf("parse query event failed: %v, position %v", err, pos)
 			}
 			if !ok {
 				continue
 			}
 
-			lastPos := pos
-			pos.Pos = e.Header.LogPos
 			for _, sql := range sqls {
 				if s.skipQueryDDL(sql, string(ev.Schema)) {
 					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
