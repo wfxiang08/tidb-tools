@@ -82,8 +82,15 @@ func (s *testSyncerSuite) resetMaster() {
 	s.db.Exec("reset master")
 }
 
+func (s *testSyncerSuite) clearRules() {
+	s.cfg.DoDBs = nil
+	s.cfg.DoTables = nil
+	s.cfg.IgnoreDBs = nil
+	s.cfg.IgnoreTables = nil
+}
+
 func (s *testSyncerSuite) TestSelectDB(c *C) {
-	s.cfg.DoDB = []string{"~^b.*", "s1", "stest"}
+	s.cfg.DoDBs = []string{"~^b.*", "s1", "stest"}
 	sqls := []string{
 		"create database s1",
 		"drop database s1",
@@ -128,11 +135,12 @@ func (s *testSyncerSuite) TestSelectDB(c *C) {
 		c.Assert(r, Equals, res[i])
 		i++
 	}
+	s.clearRules()
 }
 
 func (s *testSyncerSuite) TestSelectTable(c *C) {
-	s.cfg.DoDB = []string{"t2"}
-	s.cfg.DoTable = []TableName{
+	s.cfg.DoDBs = []string{"t2"}
+	s.cfg.DoTables = []TableName{
 		{Schema: "stest", Name: "log"},
 		{Schema: "stest", Name: "~^t.*"},
 	}
@@ -228,4 +236,154 @@ func (s *testSyncerSuite) TestSelectTable(c *C) {
 		i++
 
 	}
+	s.clearRules()
+}
+
+func (s *testSyncerSuite) TestIgnoreDB(c *C) {
+	s.cfg.IgnoreDBs = []string{"~^b.*", "s1", "stest"}
+	sqls := []string{
+		"create database s1",
+		"drop database s1",
+		"create database s2",
+		"drop database s2",
+		"create database btest",
+		"drop database btest",
+		"create database b1",
+		"drop database b1",
+		"create database stest",
+		"drop database stest",
+		"create database st",
+		"drop database st",
+	}
+	res := []bool{true, true, false, false, true, true, true, true, true, true, false, false}
+
+	for _, sql := range sqls {
+		s.db.Exec(sql)
+	}
+
+	syncer := NewSyncer(s.cfg)
+	syncer.genRegexMap()
+	i := 0
+	for {
+		if i >= len(sqls) {
+			break
+		}
+
+		e, err := s.streamer.GetEvent(context.Background())
+		if err != nil {
+			log.Fatal(err)
+		}
+		ev, ok := e.Event.(*replication.QueryEvent)
+		if !ok {
+			continue
+		}
+		sql := string(ev.Query)
+		if syncer.skipQueryEvent(sql, string(ev.Schema)) {
+			continue
+		}
+		r := syncer.skipQueryDDL(sql, string(ev.Schema))
+		c.Assert(r, Equals, res[i])
+		i++
+	}
+	s.clearRules()
+}
+
+func (s *testSyncerSuite) TestIgnoreTable(c *C) {
+	s.cfg.IgnoreDBs = []string{"t2"}
+	s.cfg.IgnoreTables = []TableName{
+		{Schema: "stest", Name: "log"},
+		{Schema: "stest", Name: "~^t.*"},
+	}
+	sqls := []string{
+		"create database s1",
+		"create table s1.log(id int)",
+		"drop database s1",
+
+		"create table mysql.test(id int)",
+		"drop table mysql.test",
+		"create database stest",
+		"create table stest.log(id int)",
+		"create table stest.t(id int)",
+		"create table stest.log2(id int)",
+		"insert into stest.t(id) values (10)",
+		"insert into stest.log(id) values (10)",
+		"insert into stest.log2(id) values (10)",
+		"drop table stest.log,stest.t,stest.log2",
+		"drop database stest",
+
+		"create database t2",
+		"create table t2.log(id int)",
+		"create table t2.log1(id int)",
+		"drop table t2.log",
+		"drop database t2",
+	}
+	res := [][]bool{
+		{false},
+		{false},
+		{false},
+
+		{true},
+		{true},
+		{true},
+		{true},
+		{true},
+		{false},
+		{true},
+		{true},
+		{false},
+		{true, true, false},
+		{true},
+
+		{true},
+		{true},
+		{true},
+		{true},
+		{true},
+	}
+
+	for _, sql := range sqls {
+		s.db.Exec(sql)
+	}
+
+	syncer := NewSyncer(s.cfg)
+	syncer.genRegexMap()
+	i := 0
+	for {
+		if i >= len(sqls) {
+			break
+		}
+		e, err := s.streamer.GetEvent(context.Background())
+		if err != nil {
+			log.Fatal(err)
+		}
+		switch ev := e.Event.(type) {
+		case *replication.QueryEvent:
+			query := string(ev.Query)
+			if syncer.skipQueryEvent(query, string(ev.Schema)) {
+				continue
+			}
+
+			querys, ok, err := resolveDDLSQL(query)
+			if !ok {
+				continue
+			}
+			if err != nil {
+				log.Fatalf("ResolveDDlSQL failed %v", err)
+			}
+			for j, q := range querys {
+				r := syncer.skipQueryDDL(q, string(ev.Schema))
+				c.Assert(r, Equals, res[i][j])
+			}
+		case *replication.RowsEvent:
+			r := syncer.skipRowEvent(string(ev.Table.Schema), string(ev.Table.Table))
+			c.Assert(r, Equals, res[i][0])
+
+		default:
+			continue
+		}
+
+		i++
+
+	}
+	s.clearRules()
 }

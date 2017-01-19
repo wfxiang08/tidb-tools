@@ -53,6 +53,31 @@ host = "127.0.0.1"
 user = "root"
 password = ""
 port = 4000
+
+# specifies to synchronize tables under db1 and db2
+replicate-do-db = ["db1","db2"]
+
+# not synchronize tables under db1 and db2
+replicate-ignore-db = ["db1","db2"]
+
+# specifies to synchronize db1.table1
+[[replicate-do-table]]
+db-name ="db1"
+tbl-name = "table1"
+
+# specifies to synchronize db3.table2
+[[replicate-do-table]]
+db-name ="db3"
+tbl-name = "table2"
+
+# not synchronize table3 under db1
+[[replicate-ignore-table]]
+db-name = "db1"
+tbl-name = "table3"
+
+# supports regexp, beginning with ~ 
+# synchronize all databases that begin with test
+replicate-do-db = ["~^test.*"]
 ```
 
 ## Example

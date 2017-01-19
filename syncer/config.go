@@ -86,10 +86,15 @@ type Config struct {
 
 	Meta string `toml:"meta" json:"meta"`
 
-	//Ref:http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-do-table
-	DoTable []TableName `toml:"replicate-do-table" json:"replicate-do-table"`
+	// Ref: http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-do-table
+	DoTables []TableName `toml:"replicate-do-table" json:"replicate-do-table"`
 
-	DoDB []string `toml:"replicate-do-db" json:"replicate-do-db"`
+	DoDBs []string `toml:"replicate-do-db" json:"replicate-do-db"`
+
+	// Ref: http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-ignore-db
+	IgnoreTables []TableName `toml:"replicate-ignore-table" json:"replicate-ignore-table"`
+
+	IgnoreDBs []string `toml:"replicate-ignore-db" json:"replicate-ignore-db"`
 
 	From DBConfig `toml:"from" json:"from"`
 
@@ -130,10 +135,20 @@ func (c *Config) Parse(arguments []string) error {
 }
 
 func (c *Config) adjust() {
-	for i := 0; i < len(c.DoTable); i++ {
-		c.DoTable[i].Name = strings.ToLower(c.DoTable[i].Name)
+	for i := 0; i < len(c.DoTables); i++ {
+		c.DoTables[i].Name = strings.ToLower(c.DoTables[i].Name)
+		c.DoTables[i].Schema = strings.ToLower(c.DoTables[i].Schema)
 	}
-
+	for i := 0; i < len(c.IgnoreTables); i++ {
+		c.IgnoreTables[i].Name = strings.ToLower(c.IgnoreTables[i].Name)
+		c.IgnoreTables[i].Schema = strings.ToLower(c.IgnoreTables[i].Schema)
+	}
+	for i := 0; i < len(c.IgnoreDBs); i++ {
+		c.IgnoreDBs[i] = strings.ToLower(c.IgnoreDBs[i])
+	}
+	for i := 0; i < len(c.DoDBs); i++ {
+		c.DoDBs[i] = strings.ToLower(c.DoDBs[i])
+	}
 }
 
 func (c *Config) String() string {

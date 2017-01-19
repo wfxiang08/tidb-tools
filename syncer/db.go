@@ -407,7 +407,7 @@ func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 			if t.Schema.O != "" {
 				db = fmt.Sprintf("`%s`.", t.Schema.O)
 			}
-			s := fmt.Sprintf("drop table %s %s`%s`", ex, db, t.Name.L)
+			s := fmt.Sprintf("drop table %s %s`%s`", ex, db, t.Name.O)
 			sqls = append(sqls, s)
 		}
 	default:
@@ -450,18 +450,18 @@ func parserDDLTableName(sql string) (TableName, error) {
 	case *ast.DropDatabaseStmt:
 		res = genTableName(v.Name, "")
 	case *ast.CreateIndexStmt:
-		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+		res = genTableName(v.Table.Schema.L, v.Table.Name.L)
 	case *ast.CreateTableStmt:
-		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+		res = genTableName(v.Table.Schema.L, v.Table.Name.L)
 	case *ast.DropIndexStmt:
-		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+		res = genTableName(v.Table.Schema.L, v.Table.Name.L)
 	case *ast.TruncateTableStmt:
-		res = genTableName(v.Table.Schema.O, v.Table.Name.L)
+		res = genTableName(v.Table.Schema.L, v.Table.Name.L)
 	case *ast.DropTableStmt:
 		if len(v.Tables) != 1 {
 			return res, errors.Errorf("may resovle DDL sql failed")
 		}
-		res = genTableName(v.Tables[0].Schema.O, v.Tables[0].Name.L)
+		res = genTableName(v.Tables[0].Schema.L, v.Tables[0].Name.L)
 	default:
 		return res, errors.Errorf("unkown DDL type")
 	}

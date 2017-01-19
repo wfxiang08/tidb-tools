@@ -31,12 +31,11 @@ import (
 var (
 	maxRetryCount = 100
 
-	retryTimeout    = 3 * time.Second
-	waitTime        = 10 * time.Millisecond
-	maxWaitTime     = 3 * time.Second
-	eventTimeout    = 3 * time.Second
-	statusTime      = 30 * time.Second
-	defaultIgnoreDB = "mysql"
+	retryTimeout = 3 * time.Second
+	waitTime     = 10 * time.Millisecond
+	maxWaitTime  = 3 * time.Second
+	eventTimeout = 3 * time.Second
+	statusTime   = 30 * time.Second
 )
 
 // Syncer can sync your MySQL data into another MySQL database.
@@ -479,151 +478,6 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 	}
 }
 
-func (s *Syncer) matchDB(patternDBS []string, a string) bool {
-	for _, b := range patternDBS {
-		if s.matchString(b, a) {
-			return true
-		}
-	}
-	return false
-}
-
-func (s *Syncer) matchString(pattern string, t string) bool {
-	if re, ok := s.reMap[pattern]; ok {
-		return re.MatchString(t)
-	}
-	return pattern == t
-}
-
-func (s *Syncer) matchTable(patternTBS []TableName, tb TableName) bool {
-	for _, ptb := range patternTBS {
-		retb, oktb := s.reMap[ptb.Name]
-		redb, okdb := s.reMap[ptb.Schema]
-
-		if oktb && okdb {
-			if redb.MatchString(tb.Schema) && retb.MatchString(tb.Name) {
-				return true
-			}
-		}
-		if oktb {
-			if retb.MatchString(tb.Name) && tb.Schema == ptb.Schema {
-				return true
-			}
-		}
-		if okdb {
-			if redb.MatchString(tb.Schema) && tb.Name == ptb.Name {
-				return true
-			}
-		}
-
-		//create database or drop database
-		if tb.Name == "" {
-			if tb.Schema == ptb.Schema {
-				return true
-			}
-		}
-
-		if ptb == tb {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (s *Syncer) skipRowEvent(schema string, table string) bool {
-	if schema == defaultIgnoreDB {
-		return true
-	}
-
-	if s.cfg.DoTable != nil || s.cfg.DoDB != nil {
-		table = strings.ToLower(table)
-		//if table in tartget Table, do this event
-		for _, d := range s.cfg.DoTable {
-			if s.matchString(d.Schema, schema) && s.matchString(d.Name, table) {
-				return false
-			}
-		}
-
-		//if schema in target DB, do this event
-		if s.matchDB(s.cfg.DoDB, schema) && len(s.cfg.DoDB) > 0 {
-			return false
-		}
-
-		return true
-	}
-	return false
-}
-
-func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
-	sql = strings.ToUpper(sql)
-
-	// For mariadb, for query event, like `# Dumm`
-	// But i don't know what is the meaning of this event.
-	if strings.HasPrefix(sql, "#") {
-		return true
-	}
-
-	if strings.HasPrefix(sql, "SAVEPOINT") {
-		return true
-	}
-
-	if strings.HasPrefix(sql, "GRANT REPLICATION SLAVE ON") {
-		return true
-	}
-
-	if strings.HasPrefix(sql, "GRANT ALL PRIVILEGES ON") {
-		return true
-	}
-
-	if strings.HasPrefix(sql, "FLUSH PRIVILEGES") {
-		return true
-	}
-
-	if strings.HasPrefix(sql, "OPTIMIZE TABLE") {
-		return true
-	}
-
-	if strings.HasPrefix(sql, "DROP TRIGGER") {
-		return true
-	}
-
-	if schema == defaultIgnoreDB {
-		return true
-	}
-
-	return false
-}
-
-func (s *Syncer) skipQueryDDL(sql string, schema string) bool {
-	tb, err := parserDDLTableName(sql)
-	if err != nil {
-		log.Warnf("[get table failure]:%s %s", sql, err)
-	}
-
-	if err == nil && (s.cfg.DoTable != nil || s.cfg.DoDB != nil) {
-		//if table in target Table, do this sql
-		if tb.Schema == "" {
-			tb.Schema = schema
-		}
-
-		if tb.Schema == defaultIgnoreDB {
-			return true
-		}
-
-		if s.matchTable(s.cfg.DoTable, tb) {
-			return false
-		}
-
-		// if  schema in target DB, do this sql
-		if s.matchDB(s.cfg.DoDB, tb.Schema) {
-			return false
-		}
-		return true
-	}
-	return false
-}
-
 func (s *Syncer) run() error {
 	defer s.wg.Done()
 
@@ -812,7 +666,7 @@ func (s *Syncer) run() error {
 }
 
 func (s *Syncer) genRegexMap() {
-	for _, db := range s.cfg.DoDB {
+	for _, db := range s.cfg.DoDBs {
 		if db[0] != '~' {
 			continue
 		}
@@ -821,7 +675,29 @@ func (s *Syncer) genRegexMap() {
 		}
 	}
 
-	for _, tb := range s.cfg.DoTable {
+	for _, db := range s.cfg.IgnoreDBs {
+		if db[0] != '~' {
+			continue
+		}
+		if _, ok := s.reMap[db]; !ok {
+			s.reMap[db] = regexp.MustCompile(db[1:])
+		}
+	}
+
+	for _, tb := range s.cfg.DoTables {
+		if tb.Name[0] == '~' {
+			if _, ok := s.reMap[tb.Name]; !ok {
+				s.reMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
+			}
+		}
+		if tb.Schema[0] == '~' {
+			if _, ok := s.reMap[tb.Schema]; !ok {
+				s.reMap[tb.Schema] = regexp.MustCompile(tb.Schema[1:])
+			}
+		}
+	}
+
+	for _, tb := range s.cfg.IgnoreTables {
 		if tb.Name[0] == '~' {
 			if _, ok := s.reMap[tb.Name]; !ok {
 				s.reMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
