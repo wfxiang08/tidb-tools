@@ -1,5 +1,5 @@
-hash: 25ceab0f69ea80de414f2b1d0f4d8e1a53f9e49a83e6b7031e04cc5a199a6f59
-updated: 2017-01-06T15:47:58.243584506+08:00
+hash: 64136e08621b2ee93c01124502b01b1eac2b54ca4cd4a5dd2681498a289ff5ec
+updated: 2017-02-03T14:46:14.476272082+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -44,7 +44,7 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/pingcap/tidb
-  version: cd98c551b4743d56e34a79e603fbf46a8ecd90a0
+  version: 59de1e5494442f4e291ca4273cd1e538cef3825a
   subpackages:
   - ast
   - context
@@ -72,7 +72,6 @@ imports:
   - util
   - util/charset
   - util/codec
-  - util/distinct
   - util/hack
   - util/mock
   - util/stringutil

@@ -25,3 +25,14 @@ check:
 	$(GO) tool vet --shadow . 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
 	golint ./... 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
 	gofmt -s -l . 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
+
+update:
+	which glide >/dev/null || curl https://glide.sh/get | sh
+	which glide-vc || go get -v -u github.com/sgotti/glide-vc
+ifdef PKG
+	glide get -s -v --skip-test ${PKG}
+else
+	glide update -s -v -u --skip-test
+endif
+	@echo "removing test files"
+	glide vc --only-code --no-tests
