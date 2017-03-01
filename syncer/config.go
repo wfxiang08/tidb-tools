@@ -32,24 +32,21 @@ func NewConfig() *Config {
 	fs.IntVar(&cfg.ServerID, "server-id", 101, "MySQL slave server ID")
 	fs.IntVar(&cfg.WorkerCount, "c", 1, "parallel worker count")
 	fs.IntVar(&cfg.Batch, "b", 1, "batch commit count")
-	fs.StringVar(&cfg.PprofAddr, "pprof-addr", ":10081", "pprof addr")
-	fs.StringVar(&cfg.Meta, "meta", "syncer.meta", "syncer meta info")
+	fs.StringVar(&cfg.PprofAddr, "pprof-addr", "", "pprof addr")
+	fs.StringVar(&cfg.Meta, "meta", "syncer.meta", "syncer meta info file")
 	fs.StringVar(&cfg.LogLevel, "L", "info", "log level: debug, info, warn, error, fatal")
 	fs.StringVar(&cfg.LogFile, "log-file", "", "log file path")
-	fs.StringVar(&cfg.LogRotate, "log-rotate", "", "log file rotate type, hour/day")
+	fs.StringVar(&cfg.LogRotate, "log-rotate", "day", "log file rotate type, hour/day")
 
 	return cfg
 }
 
 // DBConfig is the DB configuration.
 type DBConfig struct {
-	Host string `toml:"host" json:"host"`
-
-	User string `toml:"user" json:"user"`
-
+	Host     string `toml:"host" json:"host"`
+	User     string `toml:"user" json:"user"`
 	Password string `toml:"password" json:"password"`
-
-	Port int `toml:"port" json:"port"`
+	Port     int    `toml:"port" json:"port"`
 }
 
 // TableName is the Table configuration
@@ -63,42 +60,35 @@ func (c *DBConfig) String() string {
 	if c == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("DBConfig(%+v)", *c)
+	return fmt.Sprintf("DBConfig(host: %s, user: %s, port: %d, pass: <omitted>)", c.Host, c.User, c.Port)
 }
 
 // Config is the configuration.
 type Config struct {
 	*flag.FlagSet `json:"-"`
 
-	LogLevel string `toml:"log-level" json:"log-level"`
-
-	LogFile string `toml:"log-file" json:"log-file"`
-
+	LogLevel  string `toml:"log-level" json:"log-level"`
+	LogFile   string `toml:"log-file" json:"log-file"`
 	LogRotate string `toml:"log-rotate" json:"log-rotate"`
 
 	PprofAddr string `toml:"pprof-addr" json:"pprof-addr"`
 
-	ServerID int `toml:"server-id" json:"server-id"`
+	ServerID int    `toml:"server-id" json:"server-id"`
+	Meta     string `toml:"meta" json:"meta"`
 
 	WorkerCount int `toml:"worker-count" json:"worker-count"`
-
-	Batch int `toml:"batch" json:"batch"`
-
-	Meta string `toml:"meta" json:"meta"`
+	Batch       int `toml:"batch" json:"batch"`
 
 	// Ref: http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-do-table
 	DoTables []TableName `toml:"replicate-do-table" json:"replicate-do-table"`
-
-	DoDBs []string `toml:"replicate-do-db" json:"replicate-do-db"`
+	DoDBs    []string    `toml:"replicate-do-db" json:"replicate-do-db"`
 
 	// Ref: http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-ignore-db
 	IgnoreTables []TableName `toml:"replicate-ignore-table" json:"replicate-ignore-table"`
-
-	IgnoreDBs []string `toml:"replicate-ignore-db" json:"replicate-ignore-db"`
+	IgnoreDBs    []string    `toml:"replicate-ignore-db" json:"replicate-ignore-db"`
 
 	From DBConfig `toml:"from" json:"from"`
-
-	To DBConfig `toml:"to" json:"to"`
+	To   DBConfig `toml:"to" json:"to"`
 
 	configFile string
 }
@@ -155,7 +145,14 @@ func (c *Config) String() string {
 	if c == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("Config(%+v)", *c)
+	return fmt.Sprintf(`log-level:%s log-file:%s log-rotate:%s pprof-addr:%s `+
+		`server-id:%d worker-count:%d batch:%d meta-file:%s `+
+		`do-tables:%v do-dbs:%v ignore-tables:%v ignore-dbs:%v `+
+		`from:%s to:%s`,
+		c.LogLevel, c.LogFile, c.LogRotate, c.PprofAddr,
+		c.ServerID, c.WorkerCount, c.Batch, c.Meta,
+		c.DoTables, c.DoDBs, c.IgnoreTables, c.IgnoreDBs,
+		c.From.String(), c.To.String())
 }
 
 // configFromFile loads config from file.

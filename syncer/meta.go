@@ -91,18 +91,18 @@ func (lm *LocalMeta) Save(pos mysql.Position, force bool) error {
 		e := toml.NewEncoder(&buf)
 		err := e.Encode(lm)
 		if err != nil {
-			log.Errorf("syncer save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
+			log.Errorf("save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
 			return errors.Trace(err)
 		}
 
 		err = ioutil2.WriteFileAtomic(lm.name, buf.Bytes(), 0644)
 		if err != nil {
-			log.Errorf("syncer save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
+			log.Errorf("save meta info to file %s err %v", lm.name, errors.ErrorStack(err))
 			return errors.Trace(err)
 		}
 
 		lm.saveTime = time.Now()
-		log.Infof("syncer save position to file, BinLogName:%s BinLogPos:%d", lm.BinLogName, lm.BinLogPos)
+		log.Infof("save position to file, BinLogName:%s BinLogPos:%d", lm.BinLogName, lm.BinLogPos)
 	}
 	return nil
 }

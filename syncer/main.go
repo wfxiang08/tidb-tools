@@ -33,7 +33,7 @@ func main() {
 	case flag.ErrHelp:
 		os.Exit(0)
 	default:
-		log.Errorf("parse cmd flags err %s\n", err)
+		log.Errorf("parse cmd flags err %s", err)
 		os.Exit(2)
 	}
 
@@ -50,7 +50,7 @@ func main() {
 		}
 	}
 
-	log.Infof("%v", cfg)
+	log.Infof("config: %s", cfg)
 
 	syncer := NewSyncer(cfg)
 
@@ -63,16 +63,18 @@ func main() {
 
 	go func() {
 		sig := <-sc
-		log.Infof("Got signal [%d] to exit.", sig)
+		log.Infof("got signal [%d], exit", sig)
 		syncer.Close()
 	}()
 
-	go func() {
-		err1 := http.ListenAndServe(cfg.PprofAddr, nil)
-		if err1 != nil {
-			log.Fatal(err1)
-		}
-	}()
+	if cfg.PprofAddr != "" {
+		go func() {
+			err1 := http.ListenAndServe(cfg.PprofAddr, nil)
+			if err1 != nil {
+				log.Fatal(err1)
+			}
+		}()
+	}
 
 	err = syncer.Start()
 	if err != nil {

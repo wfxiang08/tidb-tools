@@ -42,7 +42,7 @@ func (s *testDBSuite) TestIsRetryableError(c *C) {
 	r = isRetryableError(e)
 	c.Assert(r, IsTrue)
 
-	e = newMysqlErr(tmysql.ErrDBCreateExists, "db is already exists")
+	e = newMysqlErr(tmysql.ErrDBCreateExists, "db already exists")
 	r = isRetryableError(e)
 	c.Assert(r, IsFalse)
 

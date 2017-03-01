@@ -15,7 +15,7 @@ Usage of syncer:
   -meta string
         syncer meta info (default "syncer.meta")
   -pprof-addr string
-        pprof addr (default ":10081")
+        pprof addr (default "", turned off)
   -server-id int
         MySQL slave server ID (default 101)
 ```
@@ -75,7 +75,7 @@ tbl-name = "table2"
 db-name = "db1"
 tbl-name = "table3"
 
-# supports regexp, beginning with ~ 
+# supports regexp, beginning with ~
 # synchronize all databases that begin with test
 replicate-do-db = ["~^test.*"]
 ```
@@ -86,7 +86,7 @@ replicate-do-db = ["~^test.*"]
 ./bin/syncer -config=syncer/config.toml
 ```
 
-## Notification 
+## Notification
 
 now syncer only supports ROW binlog format, doesn't supports GTID. You should make sure table has primary key or index, otherwise while syncer restart,it may inserts some duplicate data.
 
