@@ -77,6 +77,10 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 		return true
 	}
 
+	if strings.HasPrefix(sql, "ALTER EVENT") {
+		return true
+	}
+
 	if triggerRegex.FindStringIndex(sql) != nil {
 		return true
 	}
