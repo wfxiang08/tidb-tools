@@ -617,19 +617,19 @@ func (s *Syncer) run() error {
 		case *replication.QueryEvent:
 			ok := false
 			sql := string(ev.Query)
-			if s.skipQueryEvent(sql, string(ev.Schema)) {
-				log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
-				continue
-			}
-
 			log.Debugf("[query]%s", sql)
 
 			lastPos := pos
 			pos.Pos = e.Header.LogPos
 			sqls, ok, err := resolveDDLSQL(sql)
 			if err != nil {
+				if s.skipQueryEvent(sql, string(ev.Schema)) {
+					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
+					continue
+				}
 				return errors.Errorf("parse query event failed: %v, position %v", err, pos)
 			}
+
 			if !ok {
 				continue
 			}
