@@ -181,9 +181,9 @@ func genHashKey(key string) uint32 {
 	return crc32.ChecksumIEEE([]byte(key))
 }
 
-func genKeyList(columns []*column, datas []interface{}) string {
-	values := make([]string, 0, len(datas))
-	for i, data := range datas {
+func genKeyList(columns []*column, data []interface{}) string {
+	values := make([]string, 0, len(data))
+	for i, data := range data {
 		values = append(values, columnValue(data, columns[i].unsigned))
 	}
 
@@ -198,15 +198,15 @@ func genColumnPlaceholders(length int) string {
 	return strings.Join(values, ",")
 }
 
-func genInsertSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(datas))
-	keys := make([]string, 0, len(datas))
-	values := make([][]interface{}, 0, len(datas))
+func genInsertSQLs(schema string, table string, data [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(data))
+	keys := make([]string, 0, len(data))
+	values := make([][]interface{}, 0, len(data))
 	columnList := genColumnList(columns)
 	columnPlaceholders := genColumnPlaceholders(len(columns))
-	for _, data := range datas {
+	for _, data := range data {
 		if len(data) != len(columns) {
-			return nil, nil, nil, errors.Errorf("insert got mismatched columns and data in length: %d vs %d", len(columns), len(data))
+			return nil, nil, nil, errors.Errorf("insert columns and data mismatch in length: %d vs %d", len(columns), len(data))
 		}
 
 		value := make([]interface{}, 0, len(data))
@@ -218,14 +218,14 @@ func genInsertSQLs(schema string, table string, datas [][]interface{}, columns [
 		sqls = append(sqls, sql)
 		values = append(values, value)
 
-		keyColumns, keyValues := getColumnDatas(columns, indexColumns, value)
+		keyColumns, keyValues := getColumnData(columns, indexColumns, value)
 		keys = append(keys, genKeyList(keyColumns, keyValues))
 	}
 
 	return sqls, keys, values, nil
 }
 
-func getColumnDatas(columns []*column, indexColumns []*column, data []interface{}) ([]*column, []interface{}) {
+func getColumnData(columns []*column, indexColumns []*column, data []interface{}) ([]*column, []interface{}) {
 	cols := make([]*column, 0, len(columns))
 	values := make([]interface{}, 0, len(columns))
 	for _, column := range indexColumns {
@@ -241,7 +241,7 @@ func genWhere(columns []*column, data []interface{}) string {
 	for i := range columns {
 		kvSplit := "="
 		if data[i] == nil {
-			kvSplit = "is"
+			kvSplit = "IS"
 		}
 
 		if i == len(columns)-1 {
@@ -267,19 +267,19 @@ func genKVs(columns []*column) string {
 	return kvs.String()
 }
 
-func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(datas)/2)
-	keys := make([]string, 0, len(datas)/2)
-	values := make([][]interface{}, 0, len(datas)/2)
-	for i := 0; i < len(datas); i += 2 {
-		oldData := datas[i]
-		newData := datas[i+1]
+func genUpdateSQLs(schema string, table string, data [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(data)/2)
+	keys := make([]string, 0, len(data)/2)
+	values := make([][]interface{}, 0, len(data)/2)
+	for i := 0; i < len(data); i += 2 {
+		oldData := data[i]
+		newData := data[i+1]
 		if len(oldData) != len(newData) {
-			return nil, nil, nil, errors.Errorf("update got mismatched data in length: %d vs %d", len(oldData), len(newData))
+			return nil, nil, nil, errors.Errorf("update data mismatch in length: %d vs %d", len(oldData), len(newData))
 		}
 
 		if len(oldData) != len(columns) {
-			return nil, nil, nil, errors.Errorf("update got mismatched columns and data in length: %d vs %d", len(columns), len(oldData))
+			return nil, nil, nil, errors.Errorf("update columns and data mismatch in length: %d vs %d", len(columns), len(oldData))
 		}
 
 		oldValues := make([]interface{}, 0, len(oldData))
@@ -307,7 +307,7 @@ func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns [
 
 		whereColumns, whereValues := updateColumns, oldValues
 		if len(indexColumns) > 0 {
-			whereColumns, whereValues = getColumnDatas(columns, indexColumns, oldData)
+			whereColumns, whereValues = getColumnData(columns, indexColumns, oldData)
 		}
 
 		where := genWhere(whereColumns, whereValues)
@@ -323,13 +323,13 @@ func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns [
 	return sqls, keys, values, nil
 }
 
-func genDeleteSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(datas))
-	keys := make([]string, 0, len(datas))
-	values := make([][]interface{}, 0, len(datas))
-	for _, data := range datas {
+func genDeleteSQLs(schema string, table string, data [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(data))
+	keys := make([]string, 0, len(data))
+	values := make([][]interface{}, 0, len(data))
+	for _, data := range data {
 		if len(data) != len(columns) {
-			return nil, nil, nil, errors.Errorf("delete got mismatched columns and data in length: %d vs %d", len(columns), len(data))
+			return nil, nil, nil, errors.Errorf("delete columns and data mismatch in length: %d vs %d", len(columns), len(data))
 		}
 
 		value := make([]interface{}, 0, len(data))
@@ -339,7 +339,7 @@ func genDeleteSQLs(schema string, table string, datas [][]interface{}, columns [
 
 		whereColumns, whereValues := columns, value
 		if len(indexColumns) > 0 {
-			whereColumns, whereValues = getColumnDatas(columns, indexColumns, value)
+			whereColumns, whereValues = getColumnData(columns, indexColumns, value)
 		}
 
 		where := genWhere(whereColumns, whereValues)
@@ -500,6 +500,7 @@ func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 
 	for i := 0; i < maxRetryCount; i++ {
 		if i > 0 {
+			sqlRetriesTotal.WithLabelValues("type", "query").Add(1)
 			log.Warnf("sql query retry %d: %s", i, query)
 			time.Sleep(retryTimeout)
 		}
@@ -544,6 +545,7 @@ func executeSQL(db *sql.DB, sqls []string, args [][]interface{}, retry bool) err
 LOOP:
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
+			sqlRetriesTotal.WithLabelValues("type", "stmt_exec").Add(1)
 			log.Warnf("sql stmt_exec retry %d: %v - %v", i, sqls, args)
 			time.Sleep(retryTimeout)
 		}

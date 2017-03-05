@@ -33,6 +33,7 @@ func NewConfig() *Config {
 	fs.IntVar(&cfg.WorkerCount, "c", 1, "parallel worker count")
 	fs.IntVar(&cfg.Batch, "b", 1, "batch commit count")
 	fs.StringVar(&cfg.PprofAddr, "pprof-addr", "", "pprof addr")
+	fs.StringVar(&cfg.MetricsAddr, "metrics-addr", ":2333", "metrics addr")
 	fs.StringVar(&cfg.Meta, "meta", "syncer.meta", "syncer meta info file")
 	fs.StringVar(&cfg.LogLevel, "L", "info", "log level: debug, info, warn, error, fatal")
 	fs.StringVar(&cfg.LogFile, "log-file", "", "log file path")
@@ -56,11 +57,8 @@ type TableName struct {
 	Name   string `toml:"tbl-name" json:"tbl-name"`
 }
 
-func (c *DBConfig) String() string {
-	if c == nil {
-		return "<nil>"
-	}
-	return fmt.Sprintf("DBConfig(host: %s, user: %s, port: %d, pass: <omitted>)", c.Host, c.User, c.Port)
+func (c DBConfig) String() string {
+	return fmt.Sprintf("DBConfig(host:%s, user:%s, port:%d, pass:<omitted>)", c.Host, c.User, c.Port)
 }
 
 // Config is the configuration.
@@ -71,7 +69,8 @@ type Config struct {
 	LogFile   string `toml:"log-file" json:"log-file"`
 	LogRotate string `toml:"log-rotate" json:"log-rotate"`
 
-	PprofAddr string `toml:"pprof-addr" json:"pprof-addr"`
+	PprofAddr   string `toml:"pprof-addr" json:"pprof-addr"`
+	MetricsAddr string `toml:"metrics-addr" json:"metrics-addr"`
 
 	ServerID int    `toml:"server-id" json:"server-id"`
 	Meta     string `toml:"meta" json:"meta"`
@@ -141,10 +140,7 @@ func (c *Config) adjust() {
 	}
 }
 
-func (c *Config) String() string {
-	if c == nil {
-		return "<nil>"
-	}
+func (c Config) String() string {
 	return fmt.Sprintf(`log-level:%s log-file:%s log-rotate:%s pprof-addr:%s `+
 		`server-id:%d worker-count:%d batch:%d meta-file:%s `+
 		`do-tables:%v do-dbs:%v ignore-tables:%v ignore-dbs:%v `+
@@ -152,7 +148,7 @@ func (c *Config) String() string {
 		c.LogLevel, c.LogFile, c.LogRotate, c.PprofAddr,
 		c.ServerID, c.WorkerCount, c.Batch, c.Meta,
 		c.DoTables, c.DoDBs, c.IgnoreTables, c.IgnoreDBs,
-		c.From.String(), c.To.String())
+		c.From, c.To)
 }
 
 // configFromFile loads config from file.
