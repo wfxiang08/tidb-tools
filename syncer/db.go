@@ -181,9 +181,9 @@ func genHashKey(key string) uint32 {
 	return crc32.ChecksumIEEE([]byte(key))
 }
 
-func genKeyList(columns []*column, datas []interface{}) string {
-	values := make([]string, 0, len(datas))
-	for i, data := range datas {
+func genKeyList(columns []*column, dataSeq []interface{}) string {
+	values := make([]string, 0, len(dataSeq))
+	for i, data := range dataSeq {
 		values = append(values, columnValue(data, columns[i].unsigned))
 	}
 
@@ -198,15 +198,15 @@ func genColumnPlaceholders(length int) string {
 	return strings.Join(values, ",")
 }
 
-func genInsertSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(datas))
-	keys := make([]string, 0, len(datas))
-	values := make([][]interface{}, 0, len(datas))
+func genInsertSQLs(schema string, table string, dataSeq [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(dataSeq))
+	keys := make([]string, 0, len(dataSeq))
+	values := make([][]interface{}, 0, len(dataSeq))
 	columnList := genColumnList(columns)
 	columnPlaceholders := genColumnPlaceholders(len(columns))
-	for _, data := range datas {
+	for _, data := range dataSeq {
 		if len(data) != len(columns) {
-			return nil, nil, nil, errors.Errorf("invalid columns and data - %d, %d", len(data), len(columns))
+			return nil, nil, nil, errors.Errorf("insert columns and data mismatch in length: %d vs %d", len(columns), len(data))
 		}
 
 		value := make([]interface{}, 0, len(data))
@@ -214,18 +214,18 @@ func genInsertSQLs(schema string, table string, datas [][]interface{}, columns [
 			value = append(value, castUnsigned(data[i], columns[i].unsigned))
 		}
 
-		sql := fmt.Sprintf("replace into `%s`.`%s` (%s) values (%s);", schema, table, columnList, columnPlaceholders)
+		sql := fmt.Sprintf("REPLACE INTO `%s`.`%s` (%s) VALUES (%s);", schema, table, columnList, columnPlaceholders)
 		sqls = append(sqls, sql)
 		values = append(values, value)
 
-		keyColumns, keyValues := getColumnDatas(columns, indexColumns, value)
+		keyColumns, keyValues := getColumnData(columns, indexColumns, value)
 		keys = append(keys, genKeyList(keyColumns, keyValues))
 	}
 
 	return sqls, keys, values, nil
 }
 
-func getColumnDatas(columns []*column, indexColumns []*column, data []interface{}) ([]*column, []interface{}) {
+func getColumnData(columns []*column, indexColumns []*column, data []interface{}) ([]*column, []interface{}) {
 	cols := make([]*column, 0, len(columns))
 	values := make([]interface{}, 0, len(columns))
 	for _, column := range indexColumns {
@@ -241,13 +241,13 @@ func genWhere(columns []*column, data []interface{}) string {
 	for i := range columns {
 		kvSplit := "="
 		if data[i] == nil {
-			kvSplit = "is"
+			kvSplit = "IS"
 		}
 
 		if i == len(columns)-1 {
 			fmt.Fprintf(&kvs, "`%s` %s ?", columns[i].name, kvSplit)
 		} else {
-			fmt.Fprintf(&kvs, "`%s` %s ? and ", columns[i].name, kvSplit)
+			fmt.Fprintf(&kvs, "`%s` %s ? AND ", columns[i].name, kvSplit)
 		}
 	}
 
@@ -267,19 +267,19 @@ func genKVs(columns []*column) string {
 	return kvs.String()
 }
 
-func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(datas)/2)
-	keys := make([]string, 0, len(datas)/2)
-	values := make([][]interface{}, 0, len(datas)/2)
-	for i := 0; i < len(datas); i += 2 {
-		oldData := datas[i]
-		newData := datas[i+1]
+func genUpdateSQLs(schema string, table string, data [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(data)/2)
+	keys := make([]string, 0, len(data)/2)
+	values := make([][]interface{}, 0, len(data)/2)
+	for i := 0; i < len(data); i += 2 {
+		oldData := data[i]
+		newData := data[i+1]
 		if len(oldData) != len(newData) {
-			return nil, nil, nil, errors.Errorf("invalid update data - %d, %d", len(oldData), len(newData))
+			return nil, nil, nil, errors.Errorf("update data mismatch in length: %d vs %d", len(oldData), len(newData))
 		}
 
 		if len(oldData) != len(columns) {
-			return nil, nil, nil, errors.Errorf("invalid columns and data - %d, %d", len(oldData), len(columns))
+			return nil, nil, nil, errors.Errorf("update columns and data mismatch in length: %d vs %d", len(columns), len(oldData))
 		}
 
 		oldValues := make([]interface{}, 0, len(oldData))
@@ -307,13 +307,13 @@ func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns [
 
 		whereColumns, whereValues := updateColumns, oldValues
 		if len(indexColumns) > 0 {
-			whereColumns, whereValues = getColumnDatas(columns, indexColumns, oldData)
+			whereColumns, whereValues = getColumnData(columns, indexColumns, oldData)
 		}
 
 		where := genWhere(whereColumns, whereValues)
 		value = append(value, whereValues...)
 
-		sql := fmt.Sprintf("update `%s`.`%s` set %s where %s limit 1;", schema, table, kvs, where)
+		sql := fmt.Sprintf("UPDATE `%s`.`%s` SET %s WHERE %s LIMIT 1;", schema, table, kvs, where)
 		sqls = append(sqls, sql)
 		values = append(values, value)
 
@@ -323,13 +323,13 @@ func genUpdateSQLs(schema string, table string, datas [][]interface{}, columns [
 	return sqls, keys, values, nil
 }
 
-func genDeleteSQLs(schema string, table string, datas [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(datas))
-	keys := make([]string, 0, len(datas))
-	values := make([][]interface{}, 0, len(datas))
-	for _, data := range datas {
+func genDeleteSQLs(schema string, table string, dataSeq [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(dataSeq))
+	keys := make([]string, 0, len(dataSeq))
+	values := make([][]interface{}, 0, len(dataSeq))
+	for _, data := range dataSeq {
 		if len(data) != len(columns) {
-			return nil, nil, nil, errors.Errorf("invalid columns and data - %d, %d", len(data), len(columns))
+			return nil, nil, nil, errors.Errorf("delete columns and data mismatch in length: %d vs %d", len(columns), len(data))
 		}
 
 		value := make([]interface{}, 0, len(data))
@@ -339,13 +339,13 @@ func genDeleteSQLs(schema string, table string, datas [][]interface{}, columns [
 
 		whereColumns, whereValues := columns, value
 		if len(indexColumns) > 0 {
-			whereColumns, whereValues = getColumnDatas(columns, indexColumns, value)
+			whereColumns, whereValues = getColumnData(columns, indexColumns, value)
 		}
 
 		where := genWhere(whereColumns, whereValues)
 		values = append(values, whereValues)
 
-		sql := fmt.Sprintf("delete from `%s`.`%s` where %s limit 1;", schema, table, where)
+		sql := fmt.Sprintf("DELETE FROM `%s`.`%s` WHERE %s LIMIT 1;", schema, table, where)
 		sqls = append(sqls, sql)
 		keys = append(keys, genKeyList(whereColumns, whereValues))
 	}
@@ -386,7 +386,7 @@ func isDDLSQL(sql string) (bool, error) {
 func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 	stmt, err := parser.New().ParseOneStmt(sql, "", "")
 	if err != nil {
-		log.Errorf("Parser SQL error: %s", sql)
+		log.Errorf("error while parsing sql: %s", sql)
 		return nil, false, errors.Trace(err)
 	}
 
@@ -400,14 +400,14 @@ func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 	case *ast.DropTableStmt:
 		var ex string
 		if v.IfExists {
-			ex = "if exists"
+			ex = "IF EXISTS "
 		}
 		for _, t := range v.Tables {
 			var db string
 			if t.Schema.O != "" {
 				db = fmt.Sprintf("`%s`.", t.Schema.O)
 			}
-			s := fmt.Sprintf("drop table %s %s`%s`", ex, db, t.Name.O)
+			s := fmt.Sprintf("DROP TABLE %s%s`%s`", ex, db, t.Name.O)
 			sqls = append(sqls, s)
 		}
 	case *ast.AlterTableStmt:
@@ -441,7 +441,7 @@ func genDDLSQL(sql string, schema string) (string, error) {
 		return fmt.Sprintf("%s;", sql), nil
 	}
 
-	return fmt.Sprintf("use `%s`; %s;", schema, sql), nil
+	return fmt.Sprintf("USE `%s`; %s;", schema, sql), nil
 }
 
 func genTableName(schema string, table string) TableName {
@@ -471,11 +471,11 @@ func parserDDLTableName(sql string) (TableName, error) {
 		res = genTableName(v.Table.Schema.L, v.Table.Name.L)
 	case *ast.DropTableStmt:
 		if len(v.Tables) != 1 {
-			return res, errors.Errorf("may resovle DDL sql failed")
+			return res, errors.Errorf("drop table with multiple tables, may resovle ddl sql failed")
 		}
 		res = genTableName(v.Tables[0].Schema.L, v.Tables[0].Name.L)
 	default:
-		return res, errors.Errorf("unkown DDL type")
+		return res, errors.Errorf("unkown ddl type")
 	}
 
 	return res, nil
@@ -512,7 +512,8 @@ func querySQL(db *sql.DB, query string) (*sql.Rows, error) {
 
 	for i := 0; i < maxRetryCount; i++ {
 		if i > 0 {
-			log.Warnf("query sql retry %d - %s", i, query)
+			sqlRetriesTotal.WithLabelValues("type", "query").Add(1)
+			log.Warnf("sql query retry %d: %s", i, query)
 			time.Sleep(retryTimeout)
 		}
 
@@ -556,7 +557,8 @@ func executeSQL(db *sql.DB, sqls []string, args [][]interface{}, retry bool) err
 LOOP:
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
-			log.Warnf("exec sql retry %d - %v - %v", i, sqls, args)
+			sqlRetriesTotal.WithLabelValues("stmt_exec").Add(1)
+			log.Warnf("sql stmt_exec retry %d: %v - %v", i, sqls, args)
 			time.Sleep(retryTimeout)
 		}
 
@@ -640,7 +642,7 @@ func closeDBs(dbs ...*sql.DB) {
 	for _, db := range dbs {
 		err := closeDB(db)
 		if err != nil {
-			log.Errorf("close db failed - %v", err)
+			log.Errorf("close db failed: %v", err)
 		}
 	}
 }

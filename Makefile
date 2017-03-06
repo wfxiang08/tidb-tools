@@ -1,3 +1,8 @@
+
+LDFLAGS += -X "main.Version=1.0.0~rc2+git.$(shell git rev-parse --short HEAD)"
+LDFLAGS += -X "main.BuildTS=$(shell date -u '+%Y-%m-%d %I:%M:%S')"
+LDFLAGS += -X "main.GitHash=$(shell git rev-parse HEAD)"
+
 GO := GO15VENDOREXPERIMENT="1" go
 
 .PHONY: build importer syncer checker loader test check deps
@@ -8,7 +13,7 @@ importer:
 	$(GO) build -o bin/importer ./importer
 
 syncer:
-	$(GO) build -o bin/syncer ./syncer
+	$(GO) build -ldflags '$(LDFLAGS)' -o bin/syncer ./syncer
 
 checker:
 	$(GO) build -o bin/checker ./checker

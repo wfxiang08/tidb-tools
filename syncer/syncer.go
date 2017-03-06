@@ -38,7 +38,7 @@ var (
 	statusTime   = 30 * time.Second
 )
 
-// Syncer can sync your MySQL data into another MySQL database.
+// Syncer can sync your MySQL data to another MySQL database.
 type Syncer struct {
 	sync.Mutex
 
@@ -64,17 +64,13 @@ type Syncer struct {
 	start    time.Time
 	lastTime time.Time
 
-	ddlCount    sync2.AtomicInt64
-	insertCount sync2.AtomicInt64
-	updateCount sync2.AtomicInt64
-	deleteCount sync2.AtomicInt64
-	lastCount   sync2.AtomicInt64
-	count       sync2.AtomicInt64
+	lastCount sync2.AtomicInt64
+	count     sync2.AtomicInt64
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	reMap map[string]*regexp.Regexp
+	patternMap map[string]*regexp.Regexp
 }
 
 // NewSyncer creates a new Syncer.
@@ -85,14 +81,11 @@ func NewSyncer(cfg *Config) *Syncer {
 	syncer.closed.Set(false)
 	syncer.lastCount.Set(0)
 	syncer.count.Set(0)
-	syncer.insertCount.Set(0)
-	syncer.updateCount.Set(0)
-	syncer.deleteCount.Set(0)
 	syncer.done = make(chan struct{})
 	syncer.jobs = newJobChans(cfg.WorkerCount)
 	syncer.tables = make(map[string]*table)
 	syncer.ctx, syncer.cancel = context.WithCancel(context.Background())
-	syncer.reMap = make(map[string]*regexp.Regexp)
+	syncer.patternMap = make(map[string]*regexp.Regexp)
 	return syncer
 }
 
@@ -159,7 +152,7 @@ func (s *Syncer) checkBinlogFormat() error {
 		}
 
 		if variable == "binlog_format" && value != "ROW" {
-			log.Fatalf("We just support ROW event now")
+			log.Fatalf("binlog_format is not 'ROW': %v", value)
 		}
 
 	}
@@ -202,7 +195,7 @@ func (s *Syncer) getTableColumns(db *sql.DB, table *table) error {
 		return errors.New("schema/table is empty")
 	}
 
-	query := fmt.Sprintf("show columns from `%s`.`%s`", table.schema, table.name)
+	query := fmt.Sprintf("SHOW COLUMNS FROM `%s`.`%s`", table.schema, table.name)
 	rows, err := querySQL(db, query)
 	if err != nil {
 		return errors.Trace(err)
@@ -229,11 +222,11 @@ func (s *Syncer) getTableColumns(db *sql.DB, table *table) error {
 
 	idx := 0
 	for rows.Next() {
-		datas := make([]sql.RawBytes, len(rowColumns))
+		data := make([]sql.RawBytes, len(rowColumns))
 		values := make([]interface{}, len(rowColumns))
 
 		for i := range values {
-			values[i] = &datas[i]
+			values[i] = &data[i]
 		}
 
 		err = rows.Scan(values...)
@@ -243,10 +236,10 @@ func (s *Syncer) getTableColumns(db *sql.DB, table *table) error {
 
 		column := &column{}
 		column.idx = idx
-		column.name = string(datas[0])
+		column.name = string(data[0])
 
 		// Check whether column has unsigned flag.
-		if strings.Contains(strings.ToLower(string(datas[1])), "unsigned") {
+		if strings.Contains(strings.ToLower(string(data[1])), "unsigned") {
 			column.unsigned = true
 		}
 
@@ -266,7 +259,7 @@ func (s *Syncer) getTableIndex(db *sql.DB, table *table) error {
 		return errors.New("schema/table is empty")
 	}
 
-	query := fmt.Sprintf("show index from `%s`.`%s`", table.schema, table.name)
+	query := fmt.Sprintf("SHOW INDEX FROM `%s`.`%s`", table.schema, table.name)
 	rows, err := querySQL(db, query)
 	if err != nil {
 		return errors.Trace(err)
@@ -293,11 +286,11 @@ func (s *Syncer) getTableIndex(db *sql.DB, table *table) error {
 	var keyName string
 	var columns []string
 	for rows.Next() {
-		datas := make([]sql.RawBytes, len(rowColumns))
+		data := make([]sql.RawBytes, len(rowColumns))
 		values := make([]interface{}, len(rowColumns))
 
 		for i := range values {
-			values[i] = &datas[i]
+			values[i] = &data[i]
 		}
 
 		err = rows.Scan(values...)
@@ -305,17 +298,17 @@ func (s *Syncer) getTableIndex(db *sql.DB, table *table) error {
 			return errors.Trace(err)
 		}
 
-		nonUnique := string(datas[1])
+		nonUnique := string(data[1])
 		if nonUnique == "0" {
 			if keyName == "" {
-				keyName = string(datas[2])
+				keyName = string(data[2])
 			} else {
-				if keyName != string(datas[2]) {
+				if keyName != string(data[2]) {
 					break
 				}
 			}
 
-			columns = append(columns, string(datas[4]))
+			columns = append(columns, string(data[4]))
 		}
 	}
 
@@ -348,16 +341,18 @@ func (s *Syncer) getTable(schema string, table string) (*table, error) {
 func (s *Syncer) addCount(tp opType, n int64) {
 	switch tp {
 	case insert:
-		s.insertCount.Add(n)
+		sqlJobsTotal.WithLabelValues("insert").Add(float64(n))
 	case update:
-		s.updateCount.Add(n)
+		sqlJobsTotal.WithLabelValues("update").Add(float64(n))
 	case del:
-		s.deleteCount.Add(n)
+		sqlJobsTotal.WithLabelValues("del").Add(float64(n))
 	case ddl:
-		s.ddlCount.Add(n)
+		sqlJobsTotal.WithLabelValues("ddl").Add(float64(n))
+	case xid:
+		sqlJobsTotal.WithLabelValues("xid").Add(float64(n))
+	default:
+		panic("unreachable")
 	}
-
-	s.count.Add(n)
 }
 
 func (s *Syncer) checkWait(job *job) bool {
@@ -545,8 +540,12 @@ func (s *Syncer) run() error {
 			return errors.Trace(err)
 		}
 
+		binlogMetaPos.Set(float64(e.Header.LogPos))
+
 		switch ev := e.Event.(type) {
 		case *replication.RotateEvent:
+			binlogEventsTotal.WithLabelValues("rorate").Inc()
+
 			pos.Name = string(ev.NextLogName)
 			pos.Pos = uint32(ev.Position)
 
@@ -557,8 +556,12 @@ func (s *Syncer) run() error {
 
 			log.Infof("rotate binlog to %v", pos)
 		case *replication.RowsEvent:
+			// binlogEventsTotal.WithLabelValues("type", "rows").Add(1)
+
 			table := &table{}
 			if s.skipRowEvent(string(ev.Table.Schema), string(ev.Table.Table)) {
+				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
+
 				log.Warnf("[skip RowsEvent]db:%s table:%s", ev.Table.Schema, ev.Table.Table)
 				continue
 			}
@@ -575,6 +578,8 @@ func (s *Syncer) run() error {
 			)
 			switch e.Header.EventType {
 			case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+				binlogEventsTotal.WithLabelValues("write_rows").Inc()
+
 				sqls, keys, args, err = genInsertSQLs(table.schema, table.name, ev.Rows, table.columns, table.indexColumns)
 				if err != nil {
 					return errors.Errorf("gen insert sqls failed: %v, schema: %s, table: %s", err, table.schema, table.name)
@@ -588,6 +593,8 @@ func (s *Syncer) run() error {
 					}
 				}
 			case replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
+				binlogEventsTotal.WithLabelValues("update_rows").Inc()
+
 				sqls, keys, args, err = genUpdateSQLs(table.schema, table.name, ev.Rows, table.columns, table.indexColumns)
 				if err != nil {
 					return errors.Errorf("gen update sqls failed: %v, schema: %s, table: %s", err, table.schema, table.name)
@@ -601,6 +608,8 @@ func (s *Syncer) run() error {
 					}
 				}
 			case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+				binlogEventsTotal.WithLabelValues("delete_rows").Inc()
+
 				sqls, keys, args, err = genDeleteSQLs(table.schema, table.name, ev.Rows, table.columns, table.indexColumns)
 				if err != nil {
 					return errors.Errorf("gen delete sqls failed: %v, schema: %s, table: %s", err, table.schema, table.name)
@@ -615,8 +624,11 @@ func (s *Syncer) run() error {
 				}
 			}
 		case *replication.QueryEvent:
+			binlogEventsTotal.WithLabelValues("query").Inc()
+
 			ok := false
 			sql := string(ev.Query)
+
 			log.Debugf("[query]%s", sql)
 
 			lastPos := pos
@@ -624,6 +636,8 @@ func (s *Syncer) run() error {
 			sqls, ok, err := resolveDDLSQL(sql)
 			if err != nil {
 				if s.skipQueryEvent(sql, string(ev.Schema)) {
+					binlogSkippedEventsTotal.WithLabelValues("query").Inc()
+
 					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
 					continue
 				}
@@ -636,6 +650,7 @@ func (s *Syncer) run() error {
 
 			for _, sql := range sqls {
 				if s.skipQueryDDL(sql, string(ev.Schema)) {
+					binlogSkippedEventsTotal.WithLabelValues("query_ddl").Inc()
 					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
 					continue
 				}
@@ -658,6 +673,9 @@ func (s *Syncer) run() error {
 				s.clearTables()
 			}
 		case *replication.XIDEvent:
+			binlogEventsTotal.WithLabelValues("xid").Inc()
+			binlogSkippedEventsTotal.WithLabelValues("xid").Inc()
+
 			pos.Pos = e.Header.LogPos
 			job := newJob(xid, "", nil, "", false, pos)
 			s.addJob(job)
@@ -670,8 +688,8 @@ func (s *Syncer) genRegexMap() {
 		if db[0] != '~' {
 			continue
 		}
-		if _, ok := s.reMap[db]; !ok {
-			s.reMap[db] = regexp.MustCompile(db[1:])
+		if _, ok := s.patternMap[db]; !ok {
+			s.patternMap[db] = regexp.MustCompile(db[1:])
 		}
 	}
 
@@ -679,33 +697,33 @@ func (s *Syncer) genRegexMap() {
 		if db[0] != '~' {
 			continue
 		}
-		if _, ok := s.reMap[db]; !ok {
-			s.reMap[db] = regexp.MustCompile(db[1:])
+		if _, ok := s.patternMap[db]; !ok {
+			s.patternMap[db] = regexp.MustCompile(db[1:])
 		}
 	}
 
 	for _, tb := range s.cfg.DoTables {
 		if tb.Name[0] == '~' {
-			if _, ok := s.reMap[tb.Name]; !ok {
-				s.reMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
+			if _, ok := s.patternMap[tb.Name]; !ok {
+				s.patternMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
 			}
 		}
 		if tb.Schema[0] == '~' {
-			if _, ok := s.reMap[tb.Schema]; !ok {
-				s.reMap[tb.Schema] = regexp.MustCompile(tb.Schema[1:])
+			if _, ok := s.patternMap[tb.Schema]; !ok {
+				s.patternMap[tb.Schema] = regexp.MustCompile(tb.Schema[1:])
 			}
 		}
 	}
 
 	for _, tb := range s.cfg.IgnoreTables {
 		if tb.Name[0] == '~' {
-			if _, ok := s.reMap[tb.Name]; !ok {
-				s.reMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
+			if _, ok := s.patternMap[tb.Name]; !ok {
+				s.patternMap[tb.Name] = regexp.MustCompile(tb.Name[1:])
 			}
 		}
 		if tb.Schema[0] == '~' {
-			if _, ok := s.reMap[tb.Schema]; !ok {
-				s.reMap[tb.Schema] = regexp.MustCompile(tb.Schema[1:])
+			if _, ok := s.patternMap[tb.Schema]; !ok {
+				s.patternMap[tb.Schema] = regexp.MustCompile(tb.Schema[1:])
 			}
 		}
 	}
@@ -734,8 +752,8 @@ func (s *Syncer) printStatus() {
 				totalTps = total / totalSeconds
 			}
 
-			log.Infof("[syncer]total events = %d, insert = %d, update = %d, delete = %d, total tps = %d, recent tps = %d, %s.",
-				total, s.insertCount.Get(), s.updateCount.Get(), s.deleteCount.Get(), totalTps, tps, s.meta)
+			log.Infof("[syncer]total events = %d, total tps = %d, recent tps = %d, %s.",
+				total, totalTps, tps, s.meta)
 
 			s.lastCount.Set(total)
 			s.lastTime = time.Now()

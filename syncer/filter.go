@@ -131,7 +131,7 @@ func (s *Syncer) skipQueryDDL(sql string, schema string) bool {
 }
 
 func (s *Syncer) matchString(pattern string, t string) bool {
-	if re, ok := s.reMap[pattern]; ok {
+	if re, ok := s.patternMap[pattern]; ok {
 		return re.MatchString(t)
 	}
 	return pattern == t
@@ -152,7 +152,7 @@ func (s *Syncer) matchTable(patternTBS []TableName, tb TableName) bool {
 			return true
 		}
 
-		//create database or drop database
+		// create database or drop database
 		if tb.Name == "" {
 			if s.matchString(tb.Schema, ptb.Schema) {
 				return true
