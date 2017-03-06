@@ -198,13 +198,13 @@ func genColumnPlaceholders(length int) string {
 	return strings.Join(values, ",")
 }
 
-func genInsertSQLs(schema string, table string, data [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
-	sqls := make([]string, 0, len(data))
-	keys := make([]string, 0, len(data))
-	values := make([][]interface{}, 0, len(data))
+func genInsertSQLs(schema string, table string, dataSeq [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+	sqls := make([]string, 0, len(dataSeq))
+	keys := make([]string, 0, len(dataSeq))
+	values := make([][]interface{}, 0, len(dataSeq))
 	columnList := genColumnList(columns)
 	columnPlaceholders := genColumnPlaceholders(len(columns))
-	for _, data := range data {
+	for _, data := range dataSeq {
 		if len(data) != len(columns) {
 			return nil, nil, nil, errors.Errorf("insert columns and data mismatch in length: %d vs %d", len(columns), len(data))
 		}
