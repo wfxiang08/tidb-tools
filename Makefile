@@ -16,6 +16,9 @@ checker:
 loader:
 	$(GO) build -o bin/loader ./loader
 
+dump_region:
+	$(GO) build -o bin/dump_region ./dump_region
+
 test:
 
 check:
