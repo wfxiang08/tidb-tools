@@ -181,9 +181,9 @@ func genHashKey(key string) uint32 {
 	return crc32.ChecksumIEEE([]byte(key))
 }
 
-func genKeyList(columns []*column, data []interface{}) string {
-	values := make([]string, 0, len(data))
-	for i, data := range data {
+func genKeyList(columns []*column, dataSeq []interface{}) string {
+	values := make([]string, 0, len(dataSeq))
+	for i, data := range dataSeq {
 		values = append(values, columnValue(data, columns[i].unsigned))
 	}
 
