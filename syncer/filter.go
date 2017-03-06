@@ -24,7 +24,7 @@ var (
 		"DROP VIEW",
 		"CREATE ALGORITHM",
 		"DROP USER",
-		"ALERT USER",
+		"ALTER USER",
 	}
 )
 

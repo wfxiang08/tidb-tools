@@ -1,5 +1,5 @@
-hash: 64136e08621b2ee93c01124502b01b1eac2b54ca4cd4a5dd2681498a289ff5ec
-updated: 2017-02-03T14:46:14.476272082+08:00
+hash: e78a7beebe27e22063cdff800db60502db76a608d1580d78c323054eebdf5585
+updated: 2017-03-06T10:46:58.300624819+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -44,7 +44,7 @@ imports:
   - leveldb/table
   - leveldb/util
 - name: github.com/pingcap/tidb
-  version: 59de1e5494442f4e291ca4273cd1e538cef3825a
+  version: 754c58b1882a60c350ffb80dccefeec6a98f8a3b
   subpackages:
   - ast
   - context
@@ -72,12 +72,13 @@ imports:
   - util
   - util/charset
   - util/codec
+  - util/encrypt
   - util/hack
   - util/mock
   - util/stringutil
   - util/types
 - name: github.com/pingcap/tipb
-  version: 7be8865936fd4dfee0591913c31c07be11da5d19
+  version: 979fbca78d449e3c52de37b6fdd1dfbf0977b462
   subpackages:
   - go-binlog
   - go-tipb

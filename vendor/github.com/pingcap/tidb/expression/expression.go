@@ -265,7 +265,7 @@ func EvaluateExprWithNull(ctx context.Context, schema *Schema, expr Expression) 
 		}
 		return FoldConstant(newFunc), nil
 	case *Column:
-		if schema.ColumnIndex(x) == -1 {
+		if !schema.Contains(x) {
 			return x, nil
 		}
 		constant := &Constant{Value: types.Datum{}}
@@ -340,7 +340,8 @@ func NewCastFunc(tp *types.FieldType, arg Expression, ctx context.Context) *Scal
 
 // NewValuesFunc creates a new values function.
 func NewValuesFunc(offset int, retTp *types.FieldType, ctx context.Context) *ScalarFunction {
-	bt := &builtinValuesSig{newBaseBuiltinFunc(nil, ctx), offset}
+	fc := &valuesFunctionClass{baseFunctionClass{ast.Values, 0, 0}, offset}
+	bt, _ := fc.getFunction(nil, ctx)
 	return &ScalarFunction{
 		FuncName: model.NewCIStr(ast.Values),
 		RetType:  retTp,

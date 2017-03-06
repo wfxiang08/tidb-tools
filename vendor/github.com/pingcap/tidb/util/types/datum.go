@@ -663,7 +663,7 @@ func (d *Datum) ConvertTo(sc *variable.StatementContext, target *FieldType) (Dat
 		return d.convertToMysqlDuration(sc, target)
 	case mysql.TypeBit:
 		return d.convertToMysqlBit(sc, target)
-	case mysql.TypeDecimal, mysql.TypeNewDecimal:
+	case mysql.TypeNewDecimal:
 		return d.convertToMysqlDecimal(sc, target)
 	case mysql.TypeYear:
 		return d.convertToMysqlYear(sc, target)
@@ -777,16 +777,20 @@ func (d *Datum) convertToString(sc *variable.StatementContext, target *FieldType
 			for i := range s {
 				runeCount++
 				if runeCount == target.Flen+1 {
-					// We do break here because we need to iterate to the end to get runeCount.
+					// We don't break here because we need to iterate to the end to get runeCount.
 					truncateLen = i
 				}
 			}
 			if truncateLen > 0 {
-				err = ErrDataTooLong.Gen("Data Too Long, field len %d, data len %d", target.Flen, runeCount)
+				if !sc.IgnoreTruncate {
+					err = ErrDataTooLong.Gen("Data Too Long, field len %d, data len %d", target.Flen, runeCount)
+				}
 				s = truncateStr(s, truncateLen)
 			}
 		} else if len(s) > target.Flen {
-			err = ErrDataTooLong.Gen("Data Too Long, field len %d, data len %d", target.Flen, len(s))
+			if !sc.IgnoreTruncate {
+				err = ErrDataTooLong.Gen("Data Too Long, field len %d, data len %d", target.Flen, len(s))
+			}
 			s = truncateStr(s, target.Flen)
 		}
 	}
@@ -1326,6 +1330,20 @@ func (d *Datum) ToString() (string, error) {
 		return d.GetMysqlSet().String(), nil
 	default:
 		return "", errors.Errorf("cannot convert %v(type %T) to string", d.GetValue(), d.GetValue())
+	}
+}
+
+// ToBytes gets the bytes representation of the datum.
+func (d *Datum) ToBytes() ([]byte, error) {
+	switch d.k {
+	case KindString, KindBytes:
+		return d.GetBytes(), nil
+	default:
+		str, err := d.ToString()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		return []byte(str), nil
 	}
 }
 
