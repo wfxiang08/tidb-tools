@@ -142,6 +142,9 @@ func (d *ddl) delReorgTable(t *meta.Meta, job *model.Job) error {
 }
 
 func (d *ddl) getTable(schemaID int64, tblInfo *model.TableInfo) (table.Table, error) {
+	if tblInfo.OldSchemaID != 0 {
+		schemaID = tblInfo.OldSchemaID
+	}
 	alloc := autoid.NewAllocator(d.store, schemaID)
 	tbl, err := table.TableFromMeta(alloc, tblInfo)
 	return tbl, errors.Trace(err)
@@ -236,6 +239,9 @@ func (d *ddl) onRenameTable(t *meta.Meta, job *model.Job) error {
 		if err != nil {
 			return errors.Trace(err)
 		}
+		if tblInfo.OldSchemaID == 0 {
+			tblInfo.OldSchemaID = oldSchemaID
+		}
 	}
 
 	err = t.DropTable(oldSchemaID, tblInfo.ID)
@@ -266,7 +272,7 @@ func checkTableNotExists(t *meta.Meta, job *model.Job, schemaID int64, tableName
 	if err != nil {
 		if terror.ErrorEqual(err, meta.ErrDBNotExists) {
 			job.State = model.JobCancelled
-			return errors.Trace(infoschema.ErrDatabaseNotExists)
+			return infoschema.ErrDatabaseNotExists.GenByArgs("")
 		}
 		return errors.Trace(err)
 	}

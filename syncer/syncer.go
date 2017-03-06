@@ -628,12 +628,6 @@ func (s *Syncer) run() error {
 
 			ok := false
 			sql := string(ev.Query)
-			if s.skipQueryEvent(sql, string(ev.Schema)) {
-				binlogSkippedEventsTotal.WithLabelValues("query").Inc()
-
-				log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
-				continue
-			}
 
 			log.Debugf("[query]%s", sql)
 
@@ -641,14 +635,22 @@ func (s *Syncer) run() error {
 			pos.Pos = e.Header.LogPos
 			sqls, ok, err := resolveDDLSQL(sql)
 			if err != nil {
+				if s.skipQueryEvent(sql, string(ev.Schema)) {
+					binlogSkippedEventsTotal.WithLabelValues("query").Inc()
+
+					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
+					continue
+				}
 				return errors.Errorf("parse query event failed: %v, position %v", err, pos)
 			}
+
 			if !ok {
 				continue
 			}
 
 			for _, sql := range sqls {
 				if s.skipQueryDDL(sql, string(ev.Schema)) {
+					binlogSkippedEventsTotal.WithLabelValues("query_ddl").Inc()
 					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
 					continue
 				}

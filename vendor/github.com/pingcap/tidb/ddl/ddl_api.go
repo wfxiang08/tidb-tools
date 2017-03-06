@@ -30,6 +30,7 @@ import (
 	"github.com/pingcap/tidb/model"
 	"github.com/pingcap/tidb/mysql"
 	"github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/terror"
 	"github.com/pingcap/tidb/util/charset"
 	"github.com/pingcap/tidb/util/types"
 )
@@ -107,7 +108,7 @@ func getDefaultCharsetAndCollate() (string, string) {
 	// TODO: TableDefaultCharset-->DatabaseDefaultCharset-->SystemDefaultCharset.
 	// TODO: Change TableOption parser to parse collate.
 	// This is a tmp solution.
-	return "utf8", "utf8_unicode_ci"
+	return "utf8", "utf8_bin"
 }
 
 func setColumnFlagWithConstraint(colMap map[string]*table.Column, v *ast.Constraint) {
@@ -178,7 +179,7 @@ func buildColumnsAndConstraints(ctx context.Context, colDefs []*ast.ColumnDef,
 func setCharsetCollationFlenDecimal(tp *types.FieldType) {
 	if len(tp.Charset) == 0 {
 		switch tp.Tp {
-		case mysql.TypeString, mysql.TypeVarchar, mysql.TypeVarString, mysql.TypeBlob, mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeLongBlob:
+		case mysql.TypeString, mysql.TypeVarchar, mysql.TypeVarString, mysql.TypeBlob, mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeLongBlob, mysql.TypeEnum, mysql.TypeSet:
 			tp.Charset, tp.Collate = getDefaultCharsetAndCollate()
 		default:
 			tp.Charset = charset.CharsetBin
@@ -276,6 +277,7 @@ func columnDefToCol(ctx context.Context, offset int, colDef *ast.ColumnDef) (*ta
 				hasDefaultValue = true
 				removeOnUpdateNowFlag(col)
 			case ast.ColumnOptionOnUpdate:
+				// TODO: Support other time functions.
 				if !expression.IsCurrentTimeExpr(v.Expr) {
 					return nil, nil, ErrInvalidOnUpdate.Gen("invalid ON UPDATE for - %s", col.Name)
 				}
@@ -283,16 +285,12 @@ func columnDefToCol(ctx context.Context, offset int, colDef *ast.ColumnDef) (*ta
 				col.Flag |= mysql.OnUpdateNowFlag
 				setOnUpdateNow = true
 			case ast.ColumnOptionComment:
-				value, err := expression.EvalAstExpr(v.Expr, ctx)
-				if err != nil {
-					return nil, nil, errors.Trace(err)
-				}
-				col.Comment, err = value.ToString()
+				err := setColumnComment(ctx, col, v)
 				if err != nil {
 					return nil, nil, errors.Trace(err)
 				}
 			case ast.ColumnOptionFulltext:
-				// Do nothing.
+				// TODO: Support this type.
 			}
 		}
 	}
@@ -303,12 +301,12 @@ func columnDefToCol(ctx context.Context, offset int, colDef *ast.ColumnDef) (*ta
 	// it is `not null` and not an `AUTO_INCREMENT` field or `TIMESTAMP` field.
 	setNoDefaultValueFlag(col, hasDefaultValue)
 
-	err := checkDefaultValue(col, hasDefaultValue)
-	if err != nil {
-		return nil, nil, errors.Trace(err)
-	}
 	if col.Charset == charset.CharsetBin {
 		col.Flag |= mysql.BinaryFlag
+	}
+	err := checkDefaultValue(ctx, col, hasDefaultValue)
+	if err != nil {
+		return nil, nil, errors.Trace(err)
 	}
 	return col, constraints, nil
 }
@@ -381,18 +379,22 @@ func setNoDefaultValueFlag(c *table.Column, hasDefaultValue bool) {
 	}
 }
 
-func checkDefaultValue(c *table.Column, hasDefaultValue bool) error {
+func checkDefaultValue(ctx context.Context, c *table.Column, hasDefaultValue bool) error {
 	if !hasDefaultValue {
 		return nil
 	}
 
 	if c.DefaultValue != nil {
-		return nil
+		_, err := table.GetColDefaultValue(ctx, c.ToInfo())
+		if terror.ErrorEqual(err, types.ErrTruncated) {
+			return errInvalidDefault.GenByArgs(c.Name)
+		}
+		return errors.Trace(err)
 	}
 
 	// Set not null but default null is invalid.
 	if mysql.HasNotNullFlag(c.Flag) {
-		return ErrColumnBadNull.Gen("invalid default value for %s", c.Name)
+		return errInvalidDefault.GenByArgs(c.Name)
 	}
 
 	return nil
@@ -569,6 +571,45 @@ func (d *ddl) buildTableInfo(tableName model.CIStr, cols []*table.Column, constr
 	return
 }
 
+func (d *ddl) CreateTableWithLike(ctx context.Context, ident, referIdent ast.Ident) error {
+	is := d.GetInformationSchema()
+	_, ok := is.SchemaByName(referIdent.Schema)
+	if !ok {
+		return infoschema.ErrTableNotExists.GenByArgs(referIdent.Schema, referIdent.Name)
+	}
+	referTbl, err := is.TableByName(referIdent.Schema, referIdent.Name)
+	if err != nil {
+		return infoschema.ErrTableNotExists.GenByArgs(referIdent.Schema, referIdent.Name)
+	}
+	schema, ok := is.SchemaByName(ident.Schema)
+	if !ok {
+		return infoschema.ErrDatabaseNotExists.GenByArgs(ident.Schema)
+	}
+	if is.TableExists(ident.Schema, ident.Name) {
+		return infoschema.ErrTableExists.GenByArgs(ident)
+	}
+
+	tblInfo := *referTbl.Meta()
+	tblInfo.Name = ident.Name
+	tblInfo.AutoIncID = 0
+	tblInfo.ForeignKeys = nil
+	tblInfo.ID, err = d.genGlobalID()
+	if err != nil {
+		return errors.Trace(err)
+	}
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    tblInfo.ID,
+		Type:       model.ActionCreateTable,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{tblInfo},
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
 func (d *ddl) CreateTable(ctx context.Context, ident ast.Ident, colDefs []*ast.ColumnDef,
 	constraints []*ast.Constraint, options []*ast.TableOption) (err error) {
 	is := d.GetInformationSchema()
@@ -612,7 +653,7 @@ func (d *ddl) CreateTable(ctx context.Context, ident ast.Ident, colDefs []*ast.C
 		Args:       []interface{}{tbInfo},
 	}
 
-	handleTableOptions(options, tbInfo, schema.ID)
+	handleTableOptions(options, tbInfo)
 	err = d.doDDLJob(ctx, job)
 	if err == nil {
 		if tbInfo.AutoIncID > 1 {
@@ -627,6 +668,9 @@ func (d *ddl) CreateTable(ctx context.Context, ident ast.Ident, colDefs []*ast.C
 
 // If create table with auto_increment option, we should rebase tableAutoIncID value.
 func (d *ddl) handleAutoIncID(tbInfo *model.TableInfo, schemaID int64) error {
+	if tbInfo.OldSchemaID != 0 {
+		schemaID = tbInfo.OldSchemaID
+	}
 	alloc := autoid.NewAllocator(d.store, schemaID)
 	tbInfo.State = model.StatePublic
 	tb, err := table.TableFromMeta(alloc, tbInfo)
@@ -643,7 +687,7 @@ func (d *ddl) handleAutoIncID(tbInfo *model.TableInfo, schemaID int64) error {
 }
 
 // Add create table options into TableInfo.
-func handleTableOptions(options []*ast.TableOption, tbInfo *model.TableInfo, schemaID int64) {
+func handleTableOptions(options []*ast.TableOption, tbInfo *model.TableInfo) {
 	for _, op := range options {
 		switch op.Tp {
 		case ast.TableOptionAutoIncrement:
@@ -690,6 +734,8 @@ func (d *ddl) AlterTable(ctx context.Context, ident ast.Ident, specs []*ast.Alte
 			err = d.ModifyColumn(ctx, ident, spec)
 		case ast.AlterTableChangeColumn:
 			err = d.ChangeColumn(ctx, ident, spec)
+		case ast.AlterTableAlterColumn:
+			err = d.AlterColumn(ctx, ident, spec)
 		case ast.AlterTableRenameTable:
 			newIdent := ast.Ident{Schema: spec.NewTable.Schema, Name: spec.NewTable.Name}
 			err = d.RenameTable(ctx, ident, newIdent)
@@ -751,15 +797,6 @@ func (d *ddl) AddColumn(ctx context.Context, ti ast.Ident, spec *ast.AlterTableS
 	col, _, err = buildColumnAndConstraint(ctx, len(t.Cols()), spec.NewColumn)
 	if err != nil {
 		return errors.Trace(err)
-	}
-
-	// Check column default value.
-	colInfo := col.ToInfo()
-	if colInfo.DefaultValue != nil {
-		_, _, err := table.GetColDefaultValue(ctx, colInfo)
-		if err != nil {
-			return errors.Trace(err)
-		}
 	}
 
 	job := &model.Job{
@@ -852,8 +889,76 @@ func modifiable(origin *types.FieldType, to *types.FieldType) bool {
 			return false
 		}
 	default:
+		if origin.Tp == to.Tp {
+			return true
+		}
+
 		return false
 	}
+}
+
+func setDefaultValue(ctx context.Context, col *table.Column, option *ast.ColumnOption) error {
+	value, err := getDefaultValue(ctx, option, col.Tp, col.Decimal)
+	if err != nil {
+		return ErrColumnBadNull.Gen("invalid default value - %s", err)
+	}
+	col.DefaultValue = value
+	return errors.Trace(checkDefaultValue(ctx, col, true))
+}
+
+func setColumnComment(ctx context.Context, col *table.Column, option *ast.ColumnOption) error {
+	value, err := expression.EvalAstExpr(option.Expr, ctx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	col.Comment, err = value.ToString()
+	return errors.Trace(err)
+}
+
+func setDefaultAndComment(ctx context.Context, col *table.Column, options []*ast.ColumnOption) error {
+	if len(options) == 0 {
+		return nil
+	}
+
+	var hasDefaultValue, setOnUpdateNow bool
+	for _, opt := range options {
+		switch opt.Tp {
+		case ast.ColumnOptionDefaultValue:
+			value, err := getDefaultValue(ctx, opt, col.Tp, col.Decimal)
+			if err != nil {
+				return ErrColumnBadNull.Gen("invalid default value - %s", err)
+			}
+			col.DefaultValue = value
+			hasDefaultValue = true
+		case ast.ColumnOptionComment:
+			err := setColumnComment(ctx, col, opt)
+			if err != nil {
+				return errors.Trace(err)
+			}
+		case ast.ColumnOptionNotNull:
+			col.Flag |= mysql.NotNullFlag
+		case ast.ColumnOptionNull:
+			col.Flag &= ^uint(mysql.NotNullFlag)
+		case ast.ColumnOptionOnUpdate:
+			// TODO: Support other time functions.
+			if !expression.IsCurrentTimeExpr(opt.Expr) {
+				return ErrInvalidOnUpdate.Gen("invalid ON UPDATE for - %s", col.Name)
+			}
+
+			col.Flag |= mysql.OnUpdateNowFlag
+			setOnUpdateNow = true
+		default:
+			// TODO: Support other types.
+			return errors.Trace(errUnsupportedModifyColumn)
+		}
+	}
+
+	setTimestampDefaultValue(col, hasDefaultValue, setOnUpdateNow)
+	if hasDefaultValue {
+		return errors.Trace(checkDefaultValue(ctx, col, true))
+	}
+
+	return nil
 }
 
 func (d *ddl) getModifiableColumnJob(ctx context.Context, ident ast.Ident, originalColName model.CIStr,
@@ -873,17 +978,25 @@ func (d *ddl) getModifiableColumnJob(ctx context.Context, ident ast.Ident, origi
 		return nil, infoschema.ErrColumnNotExists.GenByArgs(originalColName, ident.Name)
 	}
 	if spec.Constraint != nil || (spec.Position != nil && spec.Position.Tp != ast.ColumnPositionNone) ||
-		len(spec.NewColumn.Options) != 0 || spec.NewColumn.Tp == nil {
+		spec.NewColumn.Tp == nil {
 		// Make sure the column definition is simple field type.
-		return nil, errUnsupportedModifyColumn
-	}
-	setCharsetCollationFlenDecimal(spec.NewColumn.Tp)
-	if !modifiable(&col.FieldType, spec.NewColumn.Tp) {
-		return nil, errUnsupportedModifyColumn
+		return nil, errors.Trace(errUnsupportedModifyColumn)
 	}
 
-	newCol := *col
-	newCol.FieldType = *spec.NewColumn.Tp
+	newCol := &table.Column{
+		ID:        col.ID,
+		Offset:    col.Offset,
+		State:     col.State,
+		FieldType: *spec.NewColumn.Tp,
+	}
+	setCharsetCollationFlenDecimal(&newCol.FieldType)
+	if !modifiable(&col.FieldType, &newCol.FieldType) {
+		return nil, errors.Trace(errUnsupportedModifyColumn)
+	}
+	if err := setDefaultAndComment(ctx, newCol, spec.NewColumn.Options); err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	newCol.Name = spec.NewColumn.Name.Name
 	job := &model.Job{
 		SchemaID:   schema.ID,
@@ -936,6 +1049,46 @@ func (d *ddl) ModifyColumn(ctx context.Context, ident ast.Ident, spec *ast.Alter
 	job, err := d.getModifiableColumnJob(ctx, ident, originalColName, spec)
 	if err != nil {
 		return errors.Trace(err)
+	}
+
+	err = d.doDDLJob(ctx, job)
+	err = d.callHookOnChanged(err)
+	return errors.Trace(err)
+}
+
+func (d *ddl) AlterColumn(ctx context.Context, ident ast.Ident, spec *ast.AlterTableSpec) error {
+	is := d.infoHandle.Get()
+	schema, ok := is.SchemaByName(ident.Schema)
+	if !ok {
+		return infoschema.ErrTableNotExists.GenByArgs(ident.Schema, ident.Name)
+	}
+	t, err := is.TableByName(ident.Schema, ident.Name)
+	if err != nil {
+		return infoschema.ErrTableNotExists.GenByArgs(ident.Schema, ident.Name)
+	}
+
+	colName := spec.NewColumn.Name.Name
+	// Check whether alter column has existed.
+	col := table.FindCol(t.Cols(), colName.L)
+	if col == nil {
+		return errBadField.GenByArgs(colName, ident.Name)
+	}
+
+	if len(spec.NewColumn.Options) == 0 {
+		col.DefaultValue = nil
+	} else {
+		err := setDefaultValue(ctx, col, spec.NewColumn.Options[0])
+		if err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	job := &model.Job{
+		SchemaID:   schema.ID,
+		TableID:    t.Meta().ID,
+		Type:       model.ActionSetDefaultValue,
+		BinlogInfo: &model.HistoryInfo{},
+		Args:       []interface{}{col},
 	}
 
 	err = d.doDDLJob(ctx, job)
