@@ -410,6 +410,18 @@ func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 			s := fmt.Sprintf("drop table %s %s`%s`", ex, db, t.Name.O)
 			sqls = append(sqls, s)
 		}
+	case *ast.AlterTableStmt:
+		tempSpecs := v.Specs
+		if len(tempSpecs) <= 1 {
+			sqls = append(sqls, sql)
+			break
+		}
+		for i := range tempSpecs {
+			v.Specs = tempSpecs[i : i+1]
+			sql := alterTableStmtToSQL(v)
+			log.Warnf("split alter table statement: %s", sql)
+			sqls = append(sqls, sql)
+		}
 	default:
 		sqls = append(sqls, sql)
 	}
