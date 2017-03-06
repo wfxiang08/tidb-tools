@@ -67,6 +67,10 @@ func main() {
 		syncer.Close()
 	}()
 
+	if cfg.MetricsAddr != "" {
+		initMetrics(cfg.MetricsAddr)
+	}
+
 	if cfg.PprofAddr != "" {
 		go func() {
 			err1 := http.ListenAndServe(cfg.PprofAddr, nil)
