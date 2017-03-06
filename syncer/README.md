@@ -9,7 +9,9 @@ Usage of syncer:
   -L string
         log level: debug, info, warn, error, fatal (default "info")
   -b int
-        batch commit count (default 1)
+        batch commit count (default 10)
+  -c int
+        parallel worker count (default 16)
   -config string
         Config file
   -meta string
