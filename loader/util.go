@@ -51,7 +51,7 @@ func IsDirExists(name string) bool {
 	return true
 }
 
-// GetDirFiles gets files in path
+// CollectDirFiles gets files in path
 func CollectDirFiles(path string) map[string]struct{} {
 	files := make(map[string]struct{})
 	filepath.Walk(path, func(path string, f os.FileInfo, err error) error {

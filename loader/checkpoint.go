@@ -25,6 +25,7 @@ import (
 	"github.com/ngaut/log"
 )
 
+// CheckPoint represents checkpoint status
 type CheckPoint struct {
 	sync.RWMutex
 	path              string
@@ -44,6 +45,7 @@ func newCheckPoint(filename string) *CheckPoint {
 	return cp
 }
 
+// IsRestoreFromLastCheckPoint reports whether the CheckPoint is retored from last check point.
 func (cp *CheckPoint) IsRestoreFromLastCheckPoint() bool {
 	return cp.restoreFromLastCP
 }
@@ -76,6 +78,7 @@ func (cp *CheckPoint) load() error {
 	return nil
 }
 
+// Save saves current checkpoint status to file
 func (cp *CheckPoint) Save(filename string) error {
 	cp.Lock()
 	defer cp.Unlock()
@@ -96,12 +99,13 @@ func (cp *CheckPoint) Save(filename string) error {
 	return nil
 }
 
+// Dump dumps current checkpoint status to a map
 func (cp *CheckPoint) Dump() map[string]struct{} {
 	cp.RLock()
 	defer cp.RUnlock()
 
 	m := make(map[string]struct{})
-	for file, _ := range cp.restoredFiles {
+	for file := range cp.restoredFiles {
 		m[file] = struct{}{}
 	}
 

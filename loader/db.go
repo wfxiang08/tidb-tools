@@ -24,6 +24,7 @@ import (
 	tmysql "github.com/pingcap/tidb/mysql"
 )
 
+// Conn represents a live DB connection
 type Conn struct {
 	db *sql.DB
 }

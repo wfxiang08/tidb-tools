@@ -42,7 +42,10 @@ var (
 	maxWaitTime = 1 * time.Second
 )
 
+// DataFiles represent all data files for a single table
 type DataFiles []string
+
+// Tables represent all data files of a table collection as a map
 type Tables map[string]DataFiles
 
 // Loader can load your mydumper data into MySQL database.
@@ -87,7 +90,7 @@ func NewLoader(cfg *Config) *Loader {
 	return loader
 }
 
-// Start to restore.
+// Restore begins the restore process.
 func (l *Loader) Restore() error {
 	if err := l.prepare(); err != nil {
 		log.Errorf("[loader] scan dir[%s] failed, err[%v]", l.cfg.Dir, err)
@@ -102,7 +105,7 @@ func (l *Loader) Restore() error {
 }
 
 func (l *Loader) prepareDbFiles(files map[string]struct{}) error {
-	for file, _ := range files {
+	for file := range files {
 		if !strings.HasSuffix(file, "-schema-create.sql") {
 			continue
 		}
@@ -122,7 +125,7 @@ func (l *Loader) prepareDbFiles(files map[string]struct{}) error {
 }
 
 func (l *Loader) prepareTableFiles(files map[string]struct{}) error {
-	for file, _ := range files {
+	for file := range files {
 		if !strings.HasSuffix(file, "-schema.sql") {
 			continue
 		}
@@ -151,7 +154,7 @@ func (l *Loader) prepareTableFiles(files map[string]struct{}) error {
 }
 
 func (l *Loader) prepareDataFiles(files map[string]struct{}) error {
-	for file, _ := range files {
+	for file := range files {
 		if !strings.HasSuffix(file, ".sql") || strings.Index(file, "-schema.sql") >= 0 ||
 			strings.Index(file, "-schema-create.sql") >= 0 {
 			continue
@@ -467,7 +470,7 @@ func (l *Loader) restoreData() error {
 
 	// restore db in sort
 	dbs := make([]string, 0, len(l.dbTables))
-	for db, _ := range l.dbTables {
+	for db := range l.dbTables {
 		dbs = append(dbs, db)
 	}
 	sort.Strings(dbs)
@@ -488,7 +491,7 @@ func (l *Loader) restoreData() error {
 
 		// restore table in sort
 		tnames := make([]string, 0, len(tables))
-		for t, _ := range tables {
+		for t := range tables {
 			tnames = append(tnames, t)
 		}
 		sort.Strings(tnames)

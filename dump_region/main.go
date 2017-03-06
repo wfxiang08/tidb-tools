@@ -41,13 +41,13 @@ func exitWithErr(err error) {
 }
 
 type regionInfo struct {
-	Region *metapb.Region `json:"region"`
-	Leader *metapb.Peer   `json:"leader"`
+	Region *metapb.Region
+	Leader *metapb.Peer
 }
 
 type keyRange struct {
-	startKey []byte `json:"start_key"`
-	endKey   []byte `json:"end_key"`
+	startKey []byte
+	endKey   []byte
 }
 
 func main() {
