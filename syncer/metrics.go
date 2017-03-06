@@ -14,11 +14,13 @@
 package main
 
 import (
-	"log"
 	"net/http"
+	// For pprof
+	_ "net/http/pprof"
+
+	"github.com/ngaut/log"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -58,16 +60,26 @@ var (
 		})
 )
 
-func initMetrics(addr string) {
+func initStatusAndMetrics(addr string) {
 	prometheus.MustRegister(binlogEventsTotal)
 	prometheus.MustRegister(binlogSkippedEventsTotal)
 	prometheus.MustRegister(sqlJobsTotal)
 	prometheus.MustRegister(sqlRetriesTotal)
 	prometheus.MustRegister(binlogMetaPos)
 
-	// Expose the registered metrics via HTTP.
 	go func() {
-		http.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(addr, nil))
+		http.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
+			w.Header().Set("Content-Type", "application/text")
+			text := GetRawSyncerInfo()
+			w.Write([]byte(text))
+		})
+
+		// HTTP path for prometheus.
+		http.Handle("/metrics", prometheus.Handler())
+		log.Infof("listening on %v for status and metrics report.", addr)
+		err := http.ListenAndServe(addr, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}()
 }

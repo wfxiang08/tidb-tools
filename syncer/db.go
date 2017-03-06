@@ -214,7 +214,7 @@ func genInsertSQLs(schema string, table string, dataSeq [][]interface{}, columns
 			value = append(value, castUnsigned(data[i], columns[i].unsigned))
 		}
 
-		sql := fmt.Sprintf("REPLACE INFO `%s`.`%s` (%s) VALUES (%s);", schema, table, columnList, columnPlaceholders)
+		sql := fmt.Sprintf("REPLACE INTO `%s`.`%s` (%s) VALUES (%s);", schema, table, columnList, columnPlaceholders)
 		sqls = append(sqls, sql)
 		values = append(values, value)
 
@@ -475,7 +475,7 @@ func parserDDLTableName(sql string) (TableName, error) {
 		}
 		res = genTableName(v.Tables[0].Schema.L, v.Tables[0].Name.L)
 	default:
-		return res, errors.Errorf("unkown ddl type %v", stmt)
+		return res, errors.Errorf("unkown ddl type")
 	}
 
 	return res, nil
@@ -557,7 +557,7 @@ func executeSQL(db *sql.DB, sqls []string, args [][]interface{}, retry bool) err
 LOOP:
 	for i := 0; i < retryCount; i++ {
 		if i > 0 {
-			sqlRetriesTotal.WithLabelValues("type", "stmt_exec").Add(1)
+			sqlRetriesTotal.WithLabelValues("stmt_exec").Add(1)
 			log.Warnf("sql stmt_exec retry %d: %v - %v", i, sqls, args)
 			time.Sleep(retryTimeout)
 		}

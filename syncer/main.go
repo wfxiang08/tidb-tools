@@ -15,7 +15,6 @@ package main
 
 import (
 	"flag"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
@@ -67,17 +66,8 @@ func main() {
 		syncer.Close()
 	}()
 
-	if cfg.MetricsAddr != "" {
-		initMetrics(cfg.MetricsAddr)
-	}
-
-	if cfg.PprofAddr != "" {
-		go func() {
-			err1 := http.ListenAndServe(cfg.PprofAddr, nil)
-			if err1 != nil {
-				log.Fatal(err1)
-			}
-		}()
+	if cfg.StatusAddr != "" {
+		initStatusAndMetrics(cfg.StatusAddr)
 	}
 
 	err = syncer.Start()
