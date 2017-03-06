@@ -96,6 +96,8 @@ type Config struct {
 
 	IgnoreDBs []string `toml:"replicate-ignore-db" json:"replicate-ignore-db"`
 
+	SkipSQLs []string `toml:"skip-sqls" json:"skip-sqls"`
+
 	From DBConfig `toml:"from" json:"from"`
 
 	To DBConfig `toml:"to" json:"to"`

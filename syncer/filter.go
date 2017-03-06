@@ -10,23 +10,29 @@ import (
 var (
 	defaultIgnoreDB = "mysql"
 	triggerRegex    = regexp.MustCompile(`(^CREATE (DEFINER=\S+ )*TRIGGER)`)
-	skipSlice       = []string{
+	skipSQLs        = []string{
 		// For mariadb, for query event, like `# Dumm`
 		// But i don't know what is the meaning of this event.
-		"#",
+		"^#",
 
-		"GRANT",
-		"FLUSH PRIVILEGES",
-		"SAVEPOINT",
-		"OPTIMIZE TABLE",
-		"DROP TRIGGER",
-		"CREATE VIEW",
-		"DROP VIEW",
-		"CREATE ALGORITHM",
-		"DROP USER",
-		"ALTER USER",
+		"^GRANT",
+		"^REVOKE",
+		"^FLUSH\\s+PRIVILEGES",
+		"^SAVEPOINT",
+		"^OPTIMIZE\\s+TABLE",
+		"^DROP\\s+TRIGGER",
+		"^CREATE\\s+VIEW",
+		"^DROP\\s+VIEW",
+		"^CREATE\\s+ALGORITHM",
+		"^DROP\\s+USER",
+		"^ALTER\\s+USER",
 	}
+	skipPatterns *regexp.Regexp
 )
+
+func init() {
+	skipPatterns = regexp.MustCompile("(?i)" + strings.Join(skipSQLs, "|"))
+}
 
 // whiteFilter whitelist filtering
 func (s *Syncer) whiteFilter(stbs []TableName) []TableName {
@@ -61,10 +67,12 @@ func (s *Syncer) blackFilter(stbs []TableName) []TableName {
 }
 
 func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
-	sql = strings.ToUpper(sql)
+	if skipPatterns.FindStringIndex(sql) != nil {
+		return true
+	}
 
-	for _, skipSQL := range skipSlice {
-		if strings.HasPrefix(sql, skipSQL) {
+	for _, skipSQL := range s.cfg.SkipSQLs {
+		if strings.HasPrefix(strings.ToUpper(sql), strings.ToUpper(skipSQL)) {
 			return true
 		}
 	}
