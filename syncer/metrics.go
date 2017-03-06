@@ -70,7 +70,7 @@ func initStatusAndMetrics(addr string) {
 	go func() {
 		http.HandleFunc("/status", func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/text")
-			text := GetRawSyncerInfo()
+			text := GetRawSyncerVersionInfo()
 			w.Write([]byte(text))
 		})
 

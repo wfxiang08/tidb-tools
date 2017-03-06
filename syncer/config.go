@@ -101,7 +101,7 @@ func (c *Config) Parse(arguments []string) error {
 	}
 
 	if c.printVersion {
-		fmt.Printf(GetRawSyncerInfo())
+		fmt.Printf(GetRawSyncerVersionInfo())
 		return flag.ErrHelp
 	}
 

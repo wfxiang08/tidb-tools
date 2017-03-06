@@ -26,7 +26,7 @@ var (
 )
 
 // GetRawSyncerInfo do what its name tells
-func GetRawSyncerInfo() string {
+func GetRawSyncerVersionInfo() string {
 	info := ""
 	info += fmt.Sprintf("syncer: v%s\n", Version)
 	info += fmt.Sprintf("Git Commit Hash: %s\n", GitHash)
