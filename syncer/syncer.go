@@ -349,10 +349,12 @@ func (s *Syncer) addCount(tp opType, n int64) {
 	case ddl:
 		sqlJobsTotal.WithLabelValues("ddl").Add(float64(n))
 	case xid:
-		sqlJobsTotal.WithLabelValues("xid").Add(float64(n))
+		// skip xid jobs
 	default:
 		panic("unreachable")
 	}
+
+	s.count.Add(n)
 }
 
 func (s *Syncer) checkWait(job *job) bool {
@@ -673,9 +675,6 @@ func (s *Syncer) run() error {
 				s.clearTables()
 			}
 		case *replication.XIDEvent:
-			binlogEventsTotal.WithLabelValues("xid").Inc()
-			binlogSkippedEventsTotal.WithLabelValues("xid").Inc()
-
 			pos.Pos = e.Header.LogPos
 			job := newJob(xid, "", nil, "", false, pos)
 			s.addJob(job)
