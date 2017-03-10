@@ -23,6 +23,8 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/satori/go.uuid"
+	"github.com/siddontang/go-mysql/mysql"
 	"github.com/siddontang/go-mysql/replication"
 	"github.com/siddontang/go/sync2"
 	"golang.org/x/net/context"
@@ -371,7 +373,7 @@ func (s *Syncer) checkWait(job *job) bool {
 
 func (s *Syncer) addJob(job *job) error {
 	if job.tp == xid {
-		s.meta.Save(job.pos, false)
+		s.meta.Save(job.pos, "", false)
 		return nil
 	}
 
@@ -385,7 +387,7 @@ func (s *Syncer) addJob(job *job) error {
 	if wait {
 		s.jobWg.Wait()
 
-		err := s.meta.Save(job.pos, true)
+		err := s.meta.Save(job.pos, job.gtid, true)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -508,7 +510,7 @@ func (s *Syncer) run() error {
 	// support regex
 	s.genRegexMap()
 
-	streamer, err := s.syncer.StartSync(s.meta.Pos())
+	streamer, err := s.getBinlogStreamer()
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -525,6 +527,7 @@ func (s *Syncer) run() error {
 	go s.printStatus()
 
 	pos := s.meta.Pos()
+	gtid := s.meta.GTID()
 
 	for {
 		ctx, cancel := context.WithTimeout(s.ctx, eventTimeout)
@@ -551,7 +554,7 @@ func (s *Syncer) run() error {
 			pos.Name = string(ev.NextLogName)
 			pos.Pos = uint32(ev.Position)
 
-			err = s.meta.Save(pos, true)
+			err = s.meta.Save(pos, "", true)
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -588,7 +591,7 @@ func (s *Syncer) run() error {
 				}
 
 				for i := range sqls {
-					job := newJob(insert, sqls[i], args[i], keys[i], true, pos)
+					job := newJob(insert, sqls[i], args[i], keys[i], true, pos, gtid)
 					err = s.addJob(job)
 					if err != nil {
 						return errors.Trace(err)
@@ -603,7 +606,7 @@ func (s *Syncer) run() error {
 				}
 
 				for i := range sqls {
-					job := newJob(update, sqls[i], args[i], keys[i], true, pos)
+					job := newJob(update, sqls[i], args[i], keys[i], true, pos, gtid)
 					err = s.addJob(job)
 					if err != nil {
 						return errors.Trace(err)
@@ -618,7 +621,7 @@ func (s *Syncer) run() error {
 				}
 
 				for i := range sqls {
-					job := newJob(del, sqls[i], args[i], keys[i], true, pos)
+					job := newJob(del, sqls[i], args[i], keys[i], true, pos, gtid)
 					err = s.addJob(job)
 					if err != nil {
 						return errors.Trace(err)
@@ -664,7 +667,7 @@ func (s *Syncer) run() error {
 
 				log.Infof("[ddl][start]%s[pos]%v[next pos]%v[schema]%s", sql, lastPos, pos, string(ev.Schema))
 
-				job := newJob(ddl, sql, nil, "", false, pos)
+				job := newJob(ddl, sql, nil, "", false, pos, gtid)
 				err = s.addJob(job)
 				if err != nil {
 					return errors.Trace(err)
@@ -676,8 +679,17 @@ func (s *Syncer) run() error {
 			}
 		case *replication.XIDEvent:
 			pos.Pos = e.Header.LogPos
-			job := newJob(xid, "", nil, "", false, pos)
+			job := newJob(xid, "", nil, "", false, pos, gtid)
 			s.addJob(job)
+		case *replication.GTIDEvent:
+			pos.Pos = e.Header.LogPos
+			u, err := uuid.FromBytes(ev.SID)
+			if err != nil {
+				return errors.Trace(err)
+			}
+			gtid = fmt.Sprintf("%s:%d", u.String(), ev.GNO)
+		case *replication.MariadbGTIDEvent:
+			gtid = ev.GTID.String()
 		}
 	}
 }
@@ -758,6 +770,31 @@ func (s *Syncer) printStatus() {
 			s.lastTime = time.Now()
 		}
 	}
+}
+
+func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, error) {
+	gtid := s.meta.GTID()
+
+	if gtid != "" {
+		var f func(string) (mysql.GTIDSet, error)
+		switch s.cfg.FromDBType {
+		case "mysql":
+			f = mysql.ParseMysqlGTIDSet
+		case "mariadb":
+			f = mysql.ParseMariadbGTIDSet
+		default:
+			return nil, errors.Errorf("wrong source database type %s", s.cfg.FromDBType)
+		}
+
+		gtidSet, err := f(gtid)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		return s.syncer.StartSyncGTID(gtidSet)
+	}
+
+	return s.syncer.StartSync(s.meta.Pos())
 }
 
 func (s *Syncer) isClosed() bool {

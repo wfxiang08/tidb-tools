@@ -38,6 +38,7 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.LogLevel, "L", "info", "log level: debug, info, warn, error, fatal")
 	fs.StringVar(&cfg.LogFile, "log-file", "", "log file path")
 	fs.StringVar(&cfg.LogRotate, "log-rotate", "day", "log file rotate type, hour/day")
+	fs.StringVar(&cfg.FromDBType, "from-db-type", "mysql", "source database type, mysql or mariadb")
 
 	return cfg
 }
@@ -89,6 +90,8 @@ type Config struct {
 
 	From DBConfig `toml:"from" json:"from"`
 	To   DBConfig `toml:"to" json:"to"`
+
+	FromDBType string `toml:"from-db-type" json:"from-db-type"`
 
 	configFile   string
 	printVersion bool

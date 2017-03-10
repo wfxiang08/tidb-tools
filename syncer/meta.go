@@ -38,13 +38,16 @@ type Meta interface {
 	Load() error
 
 	// Save saves meta information.
-	Save(pos mysql.Position, force bool) error
+	Save(pos mysql.Position, gtid string, force bool) error
 
 	// Check checks whether we should save meta.
 	Check() bool
 
 	// Pos gets position information.
 	Pos() mysql.Position
+
+	// GTID() returns gtid information.
+	GTID() string
 }
 
 // LocalMeta is local meta struct.
@@ -56,6 +59,7 @@ type LocalMeta struct {
 
 	BinLogName string `toml:"binlog-name" json:"binlog-name"`
 	BinLogPos  uint32 `toml:"binlog-pos" json:"binlog-pos"`
+	BinlogGTID string `toml:"binlog-gtid" json:"binlog-gtid"`
 }
 
 // NewLocalMeta creates a new LocalMeta.
@@ -79,12 +83,16 @@ func (lm *LocalMeta) Load() error {
 }
 
 // Save implements Meta.Save interface.
-func (lm *LocalMeta) Save(pos mysql.Position, force bool) error {
+func (lm *LocalMeta) Save(pos mysql.Position, gtid string, force bool) error {
 	lm.Lock()
 	defer lm.Unlock()
 
 	lm.BinLogName = pos.Name
 	lm.BinLogPos = pos.Pos
+
+	if gtid != "" {
+		lm.BinlogGTID = gtid
+	}
 
 	if force {
 		var buf bytes.Buffer
@@ -102,7 +110,7 @@ func (lm *LocalMeta) Save(pos mysql.Position, force bool) error {
 		}
 
 		lm.saveTime = time.Now()
-		log.Infof("save position to file, binlog-name:%s binlog-pos:%d", lm.BinLogName, lm.BinLogPos)
+		log.Infof("save position to file, binlog-name:%s binlog-pos:%d binlog-gtid: %s", lm.BinLogName, lm.BinLogPos, lm.BinlogGTID)
 	}
 	return nil
 }
@@ -113,6 +121,11 @@ func (lm *LocalMeta) Pos() mysql.Position {
 	defer lm.RUnlock()
 
 	return mysql.Position{Name: lm.BinLogName, Pos: lm.BinLogPos}
+}
+
+// GTID implements Meta.GTID interface
+func (lm *LocalMeta) GTID() string {
+	return lm.BinlogGTID
 }
 
 // Check implements Meta.Check interface.
@@ -129,5 +142,5 @@ func (lm *LocalMeta) Check() bool {
 
 func (lm *LocalMeta) String() string {
 	pos := lm.Pos()
-	return fmt.Sprintf("binlog-name = %s, binlog-pos = %d", pos.Name, pos.Pos)
+	return fmt.Sprintf("binlog-name = %s, binlog-pos = %d, binlog-gtid = %s", pos.Name, pos.Pos, lm.BinlogGTID)
 }
