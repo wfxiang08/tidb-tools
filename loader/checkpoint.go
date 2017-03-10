@@ -40,7 +40,7 @@ func newCheckPoint(filename string) *CheckPoint {
 		restoreFromLastCP: false,
 	}
 	if err := cp.load(); err != nil {
-		log.Fatal("recover from check point failed, %v", err)
+		log.Fatalf("recover from check point failed, %v", err)
 	}
 	return cp
 }
