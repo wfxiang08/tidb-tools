@@ -1,5 +1,5 @@
-hash: e79bdcb9e622ab3740bd781f4b8ec1b1b0084467e1eac0061c18bef4cbc4951b
-updated: 2017-03-11T15:52:37.331757078+08:00
+hash: 98c63465abfc77ec887b46f5f5cc774df8763fd38f1f6015b198f55c71406695
+updated: 2017-03-11T16:49:05.563652887+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -165,7 +165,7 @@ imports:
   - encoding/unicode
   - transform
 - name: google.golang.org/grpc
-  version: 02fca896ff5f50c6bbbee0860345a49344b37a03
+  version: 777daa17ff9b5daef1cfdf915088a2ada3332bf0
   subpackages:
   - codes
   - credentials
