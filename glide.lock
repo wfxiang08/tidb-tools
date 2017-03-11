@@ -1,5 +1,5 @@
-hash: e78a7beebe27e22063cdff800db60502db76a608d1580d78c323054eebdf5585
-updated: 2017-03-06T10:46:58.300624819+08:00
+hash: e79bdcb9e622ab3740bd781f4b8ec1b1b0084467e1eac0061c18bef4cbc4951b
+updated: 2017-03-11T15:52:37.331757078+08:00
 imports:
 - name: github.com/beorn7/perks
   version: 3ac7bf7a47d159a033b107610db8a1b6575507a4
@@ -7,6 +7,8 @@ imports:
   - quantile
 - name: github.com/BurntSushi/toml
   version: 99064174e013895bbd9b025c31100bd1d9b590ca
+- name: github.com/dustin/go-humanize
+  version: 7a41df006ff9af79a29f0ffa9c5f21fbe6314a2d
 - name: github.com/go-sql-driver/mysql
   version: 4ac31a97ccff97de60ba3c630bfb4733c1bb6d0e
 - name: github.com/golang/protobuf
@@ -22,6 +24,8 @@ imports:
   version: c12348ce28de40eed0136aa2b644d0ee0650e56c
   subpackages:
   - pbutil
+- name: github.com/ngaut/deadline
+  version: fae8f9dfd7048de16575b9d4c255278e38c28a4f
 - name: github.com/ngaut/log
   version: cec23d3e10b016363780d894a0eb732a12c06e02
 - name: github.com/petar/GoLLRB
@@ -43,8 +47,29 @@ imports:
   - leveldb/storage
   - leveldb/table
   - leveldb/util
+- name: github.com/pingcap/kvproto
+  version: 854b7eeb43e436a692463a18f03dabfe917ebe2b
+  subpackages:
+  - pkg/coprocessor
+  - pkg/eraftpb
+  - pkg/errorpb
+  - pkg/kvrpcpb
+  - pkg/metapb
+  - pkg/msgpb
+  - pkg/pdpb
+  - pkg/raft_cmdpb
+  - pkg/raft_serverpb
+  - pkg/util
+- name: github.com/pingcap/pd
+  version: 174171b2b15c871c480959397d9b8047175559e7
+  subpackages:
+  - pd-client
+  - pkg/apiutil
+  - pkg/metricutil
+  - pkg/rpcutil
+  - pkg/typeutil
 - name: github.com/pingcap/tidb
-  version: 754c58b1882a60c350ffb80dccefeec6a98f8a3b
+  version: 779a38b61cf8a9f4312935fd6b46083a61f4a04a
   subpackages:
   - ast
   - context
@@ -78,10 +103,11 @@ imports:
   - util/stringutil
   - util/types
 - name: github.com/pingcap/tipb
-  version: 979fbca78d449e3c52de37b6fdd1dfbf0977b462
+  version: 1043caee48da56ffc3521406a041db8e5feac9a8
   subpackages:
   - go-binlog
   - go-tipb
+  - sharedbytes
 - name: github.com/prometheus/client_golang
   version: c5b7fccd204277076155f10851dad72b76a49317
   subpackages:
