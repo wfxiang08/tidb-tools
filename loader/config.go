@@ -30,7 +30,8 @@ func NewConfig() *Config {
 	fs.StringVar(&cfg.Dir, "d", "./", "Directory of the dump to import")
 
 	fs.IntVar(&cfg.Batch, "q", 1, "Number of queries per transaction, default 1")
-	fs.IntVar(&cfg.Worker, "t", 4, "Number of threads to use")
+	fs.IntVar(&cfg.WorkersEachTable, "t", 4, "Number of threads for each table")
+	fs.IntVar(&cfg.TableConcurrency, "tc", 1, "Concurrency of table level")
 
 	fs.StringVar(&cfg.DB.Host, "h", "127.0.0.1", "The host to connect to")
 	fs.StringVar(&cfg.DB.User, "u", "root", "Username with privileges to run the dump")
@@ -76,7 +77,9 @@ type Config struct {
 
 	PprofAddr string `toml:"pprof-addr" json:"pprof-addr"`
 
-	Worker int `toml:"worker" json:"worker"`
+	WorkersEachTable int `toml:"worker" json:"worker"`
+
+	TableConcurrency int `toml:"table-concurrency" json:"table-concurrency"`
 
 	Batch int `toml:"batch" json:"batch"`
 
