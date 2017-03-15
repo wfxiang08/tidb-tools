@@ -284,31 +284,32 @@ func genUpdateSQLs(schema string, table string, data [][]interface{}, columns []
 		}
 
 		oldValues := make([]interface{}, 0, len(oldData))
-		newValues := make([]interface{}, 0, len(newData))
+		changedValues := make([]interface{}, 0, len(newData))
 		updateColumns := make([]*column, 0, len(indexColumns))
 
 		for j := range oldData {
+			oldValues = append(oldValues, castUnsigned(oldData[j], columns[j].unsigned))
+
 			if reflect.DeepEqual(oldData[j], newData[j]) {
 				continue
 			}
 
 			updateColumns = append(updateColumns, columns[j])
-			oldValues = append(oldValues, castUnsigned(oldData[j], columns[j].unsigned))
-			newValues = append(newValues, castUnsigned(newData[j], columns[j].unsigned))
+			changedValues = append(changedValues, castUnsigned(newData[j], columns[j].unsigned))
 		}
 
-		// ignore newData == oldData
+		// ignore no changed sql
 		if len(updateColumns) == 0 {
 			continue
 		}
 
 		value := make([]interface{}, 0, len(oldData))
 		kvs := genKVs(updateColumns)
-		value = append(value, newValues...)
+		value = append(value, changedValues...)
 
-		whereColumns, whereValues := updateColumns, oldValues
+		whereColumns, whereValues := columns, oldValues
 		if len(indexColumns) > 0 {
-			whereColumns, whereValues = getColumnData(columns, indexColumns, oldData)
+			whereColumns, whereValues = getColumnData(columns, indexColumns, oldValues)
 		}
 
 		where := genWhere(whereColumns, whereValues)
