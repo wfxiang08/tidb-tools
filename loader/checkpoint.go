@@ -53,6 +53,7 @@ func newCheckPoint(filename string) *CheckPoint {
 	return cp
 }
 
+// Calculate the check point for tables partial restored.
 func (cp *CheckPoint) Calc(allFiles map[string]Tables2DataFiles) {
 	if len(cp.restoredFiles) == 0 {
 		return
