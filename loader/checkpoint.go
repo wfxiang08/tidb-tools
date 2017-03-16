@@ -134,6 +134,8 @@ func (cp *CheckPoint) load() error {
 		cp.restoredFiles[l] = struct{}{}
 	}
 
+	log.Infof("calc checkpoint finished. finished(%v), partial(%v)", cp.FinishedTables, cp.PartialRestoredTables)
+
 	return nil
 }
 
