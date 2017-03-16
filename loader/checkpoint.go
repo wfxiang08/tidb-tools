@@ -86,6 +86,8 @@ func (cp *CheckPoint) Calc(allFiles map[string]Tables2DataFiles) {
 			}
 		}
 	}
+
+	log.Infof("calc checkpoint finished. finished tables (%v), partial tables (%v), ", cp.FinishedTables, cp.PartialRestoredTables)
 }
 
 func (cp *CheckPoint) load() error {
@@ -128,13 +130,10 @@ func (cp *CheckPoint) load() error {
 		if _, ok := tables[fields[1]]; !ok {
 			tables[fields[1]] = make(DataFiles, 0, 16)
 		}
-		// dataFiles contains data files has restored for this table
-		dataFiles := tables[fields[1]]
-		dataFiles = append(dataFiles, l)
+		// dataFiles contains data files has restored for this table)
+		tables[fields[1]] = append(tables[fields[1]], l)
 		cp.restoredFiles[l] = struct{}{}
 	}
-
-	log.Infof("calc checkpoint finished. finished(%v), partial(%v)", cp.FinishedTables, cp.PartialRestoredTables)
 
 	return nil
 }
