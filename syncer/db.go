@@ -34,6 +34,7 @@ import (
 	"github.com/pingcap/tidb/parser"
 	"github.com/pingcap/tidb/terror"
 	gmysql "github.com/siddontang/go-mysql/mysql"
+	"github.com/siddontang/go-mysql/replication"
 )
 
 type opType byte
@@ -44,7 +45,13 @@ const (
 	del
 	ddl
 	xid
+	gtid
 )
+
+type gtidInfo struct {
+	id   string // mysql: server uuid/mariadb Domain ID + server ID
+	gtid string
+}
 
 type job struct {
 	tp    opType
@@ -53,11 +60,28 @@ type job struct {
 	key   string
 	retry bool
 	pos   gmysql.Position
-	gtid  string
+	gtid  *gtidInfo
 }
 
-func newJob(tp opType, sql string, args []interface{}, key string, retry bool, pos gmysql.Position, gtid string) *job {
-	return &job{tp: tp, sql: sql, args: args, key: key, retry: retry, pos: pos, gtid: gtid}
+func newJob(tp opType, sql string, args []interface{}, key string, retry bool, pos gmysql.Position) *job {
+	return &job{tp: tp, sql: sql, args: args, key: key, retry: retry, pos: pos}
+}
+
+func newGTIDJob(id string, gtidStr string, pos gmysql.Position) *job {
+	return &job{tp: gtid, gtid: &gtidInfo{id: id, gtid: gtidStr}, pos: pos}
+}
+
+func newXIDJob(pos gmysql.Position) *job {
+	return &job{tp: xid, pos: pos}
+}
+
+func isNotRotateEvent(e *replication.BinlogEvent) bool {
+	switch e.Event.(type) {
+	case *replication.RotateEvent:
+		return false
+	default:
+		return true
+	}
 }
 
 type column struct {
@@ -284,31 +308,32 @@ func genUpdateSQLs(schema string, table string, data [][]interface{}, columns []
 		}
 
 		oldValues := make([]interface{}, 0, len(oldData))
-		newValues := make([]interface{}, 0, len(newData))
+		changedValues := make([]interface{}, 0, len(newData))
 		updateColumns := make([]*column, 0, len(indexColumns))
 
 		for j := range oldData {
+			oldValues = append(oldValues, castUnsigned(oldData[j], columns[j].unsigned))
+
 			if reflect.DeepEqual(oldData[j], newData[j]) {
 				continue
 			}
 
 			updateColumns = append(updateColumns, columns[j])
-			oldValues = append(oldValues, castUnsigned(oldData[j], columns[j].unsigned))
-			newValues = append(newValues, castUnsigned(newData[j], columns[j].unsigned))
+			changedValues = append(changedValues, castUnsigned(newData[j], columns[j].unsigned))
 		}
 
-		// ignore newData == oldData
+		// ignore no changed sql
 		if len(updateColumns) == 0 {
 			continue
 		}
 
 		value := make([]interface{}, 0, len(oldData))
 		kvs := genKVs(updateColumns)
-		value = append(value, newValues...)
+		value = append(value, changedValues...)
 
-		whereColumns, whereValues := updateColumns, oldValues
+		whereColumns, whereValues := columns, oldValues
 		if len(indexColumns) > 0 {
-			whereColumns, whereValues = getColumnData(columns, indexColumns, oldData)
+			whereColumns, whereValues = getColumnData(columns, indexColumns, oldValues)
 		}
 
 		where := genWhere(whereColumns, whereValues)
@@ -417,10 +442,11 @@ func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 			sqls = append(sqls, sql)
 			break
 		}
+		log.Warnf("will split alter table statemet: %v", sql)
 		for i := range tempSpecs {
 			v.Specs = tempSpecs[i : i+1]
 			sql1 := alterTableStmtToSQL(v)
-			log.Warnf("split alter table statement: %s", sql1)
+			log.Warnf("splitted alter table statement: %s", sql1)
 			sqls = append(sqls, sql1)
 		}
 	default:

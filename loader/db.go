@@ -64,7 +64,11 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 			time.Sleep(2 * time.Duration(i) * time.Second)
 		}
 
-		if err = executeSQLImp(conn.db, sqls, skipConstraintCheck); err != nil {
+		// retry can not skip constraint check.
+		if i > 0 {
+			skipConstraintCheck = false
+		}
+		if err = executeSQLImp(conn.db, sqls, skipConstraintCheck); err != nil && !isErrDupEntry(err) {
 			continue
 		}
 
@@ -246,6 +250,14 @@ func isErrDBExists(err error) bool {
 func isErrTableExists(err error) bool {
 	err = causeErr(err)
 	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tmysql.ErrTableExists {
+		return true
+	}
+	return false
+}
+
+func isErrDupEntry(err error) bool {
+	err = causeErr(err)
+	if e, ok := err.(*mysql.MySQLError); ok && e.Number == tmysql.ErrDupEntry {
 		return true
 	}
 	return false

@@ -38,7 +38,7 @@ type Meta interface {
 	Load() error
 
 	// Save saves meta information.
-	Save(pos mysql.Position, gtid string, force bool) error
+	Save(pos mysql.Position, id string, gtid string, force bool) error
 
 	// Check checks whether we should save meta.
 	Check() bool
@@ -47,7 +47,7 @@ type Meta interface {
 	Pos() mysql.Position
 
 	// GTID() returns gtid information.
-	GTID() string
+	GTID() map[string]string
 }
 
 // LocalMeta is local meta struct.
@@ -57,14 +57,14 @@ type LocalMeta struct {
 	name     string
 	saveTime time.Time
 
-	BinLogName string `toml:"binlog-name" json:"binlog-name"`
-	BinLogPos  uint32 `toml:"binlog-pos" json:"binlog-pos"`
-	BinlogGTID string `toml:"binlog-gtid" json:"binlog-gtid"`
+	BinLogName string            `toml:"binlog-name" json:"binlog-name"`
+	BinLogPos  uint32            `toml:"binlog-pos" json:"binlog-pos"`
+	BinlogGTID map[string]string `toml:"binlog-gtid" json:"binlog-gtid"`
 }
 
 // NewLocalMeta creates a new LocalMeta.
 func NewLocalMeta(name string) *LocalMeta {
-	return &LocalMeta{name: name, BinLogPos: 4}
+	return &LocalMeta{name: name, BinLogPos: 4, BinlogGTID: make(map[string]string)}
 }
 
 // Load implements Meta.Load interface.
@@ -83,15 +83,15 @@ func (lm *LocalMeta) Load() error {
 }
 
 // Save implements Meta.Save interface.
-func (lm *LocalMeta) Save(pos mysql.Position, gtid string, force bool) error {
+func (lm *LocalMeta) Save(pos mysql.Position, id string, gtid string, force bool) error {
 	lm.Lock()
 	defer lm.Unlock()
 
 	lm.BinLogName = pos.Name
 	lm.BinLogPos = pos.Pos
 
-	if gtid != "" {
-		lm.BinlogGTID = gtid
+	if len(gtid) != 0 {
+		lm.BinlogGTID[id] = gtid
 	}
 
 	if force {
@@ -110,7 +110,7 @@ func (lm *LocalMeta) Save(pos mysql.Position, gtid string, force bool) error {
 		}
 
 		lm.saveTime = time.Now()
-		log.Infof("save position to file, binlog-name:%s binlog-pos:%d binlog-gtid: %s", lm.BinLogName, lm.BinLogPos, lm.BinlogGTID)
+		log.Infof("save position to file, binlog-name:%s binlog-pos:%d binlog-gtid:%v", lm.BinLogName, lm.BinLogPos, lm.BinlogGTID)
 	}
 	return nil
 }
@@ -124,7 +124,7 @@ func (lm *LocalMeta) Pos() mysql.Position {
 }
 
 // GTID implements Meta.GTID interface
-func (lm *LocalMeta) GTID() string {
+func (lm *LocalMeta) GTID() map[string]string {
 	return lm.BinlogGTID
 }
 
@@ -142,5 +142,5 @@ func (lm *LocalMeta) Check() bool {
 
 func (lm *LocalMeta) String() string {
 	pos := lm.Pos()
-	return fmt.Sprintf("binlog-name = %s, binlog-pos = %d, binlog-gtid = %s", pos.Name, pos.Pos, lm.BinlogGTID)
+	return fmt.Sprintf("binlog-name = %s, binlog-pos = %d, binlog-gtid = %v", pos.Name, pos.Pos, lm.BinlogGTID)
 }

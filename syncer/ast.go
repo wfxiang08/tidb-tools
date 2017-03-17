@@ -49,8 +49,7 @@ func columnDefToSQL(colDef *ast.ColumnDef) string {
 		case ast.ColumnOptionPrimaryKey:
 			sql += " PRIMARY KEY"
 		case ast.ColumnOptionComment:
-			sql += " COMMENT 'TODO'"
-			panic("not implemented yet")
+			sql += " COMMENT 'TODO: not implemented in syncer yet'"
 		case ast.ColumnOptionOnUpdate: // For Timestamp and Datetime only.
 			sql += "ON UPDATE (TODO)"
 			panic("not implemented yet")
