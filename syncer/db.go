@@ -442,10 +442,11 @@ func resolveDDLSQL(sql string) (sqls []string, ok bool, err error) {
 			sqls = append(sqls, sql)
 			break
 		}
+		log.Warnf("will split alter table statemet: %v", sql)
 		for i := range tempSpecs {
 			v.Specs = tempSpecs[i : i+1]
 			sql1 := alterTableStmtToSQL(v)
-			log.Warnf("split alter table statement: %s", sql1)
+			log.Warnf("splitted alter table statement: %s", sql1)
 			sqls = append(sqls, sql1)
 		}
 	default:
