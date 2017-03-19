@@ -125,7 +125,14 @@ func (lm *LocalMeta) Pos() mysql.Position {
 
 // GTID implements Meta.GTID interface
 func (lm *LocalMeta) GTID() map[string]string {
-	return lm.BinlogGTID
+	lm.RLock()
+	defer lm.RUnlock()
+
+	gtids := make(map[string]string)
+	for key, val := range lm.BinlogGTID {
+		gtids[key] = val
+	}
+	return gtids
 }
 
 // Check implements Meta.Check interface.
@@ -142,5 +149,6 @@ func (lm *LocalMeta) Check() bool {
 
 func (lm *LocalMeta) String() string {
 	pos := lm.Pos()
-	return fmt.Sprintf("binlog-name = %s, binlog-pos = %d, binlog-gtid = %v", pos.Name, pos.Pos, lm.BinlogGTID)
+	gtids := lm.GTID()
+	return fmt.Sprintf("binlog-name = %s, binlog-pos = %d, binlog-gtid = %v", pos.Name, pos.Pos, gtids)
 }
