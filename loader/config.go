@@ -32,6 +32,7 @@ func NewConfig() *Config {
 	fs.IntVar(&cfg.Batch, "q", 1, "Number of queries per transaction, default 1")
 	fs.IntVar(&cfg.WorkersEachTable, "t", 4, "Number of threads for each table")
 	fs.IntVar(&cfg.TableConcurrency, "tc", 1, "Concurrency of table level")
+	fs.IntVar(&cfg.FileNumOneBlock, "file-num-on-block", 128, "Number of data files for each block")
 
 	fs.StringVar(&cfg.DB.Host, "h", "127.0.0.1", "The host to connect to")
 	fs.StringVar(&cfg.DB.User, "u", "root", "Username with privileges to run the dump")
@@ -80,6 +81,13 @@ type Config struct {
 	WorkersEachTable int `toml:"worker" json:"worker"`
 
 	TableConcurrency int `toml:"table-concurrency" json:"table-concurrency"`
+
+	// One table has one checkpoint at normally, when there are just a huge table(like 100GB),
+	// restore a single table like that can not make use of all of the TiKV nodes's resources,
+	// because the write concentrated in a few hot regions, so we split that big table into
+	// several blocks, each block contains a number of datafiles, each block has a checkpoint.
+	// and restore the table concurrently at block level.
+	FileNumOneBlock int `toml:"file-num-one-block" json:"file-num-one-block"`
 
 	Batch int `toml:"batch" json:"batch"`
 
