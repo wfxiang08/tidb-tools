@@ -369,42 +369,38 @@ func causeErr(err error) error {
 
 func (l *Loader) runTableWorker(poolId int, queue chan *tableJob) {
 	for {
-		select {
-		case job, ok := <-queue:
-			if !ok {
-				log.Infof("table worker [%d] exit.", poolId)
-				return
-			}
-
-			// restore a table
-			checkExist := true
-			for pos := job.startPos; pos < len(job.dataFiles); pos++ {
-				l.restoreDataFile(poolId, l.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist)
-				checkExist = false
-			}
-
-			l.tableJobWg.Done()
+		job, ok := <-queue
+		if !ok {
+			log.Infof("table worker [%d] exit.", poolId)
+			return
 		}
+
+		// restore a table
+		checkExist := true
+		for pos := job.startPos; pos < len(job.dataFiles); pos++ {
+			l.restoreDataFile(poolId, l.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist)
+			checkExist = false
+		}
+
+		l.tableJobWg.Done()
 	}
 }
 
 func (l *Loader) runDataWorker(poolId int, conn *Conn, queue chan *dataJob) {
 	for {
-		select {
-		case job, ok := <-queue:
-			if !ok {
-				log.Infof("[loader] worker exit")
-				return
-			}
-			sqls := make([]string, 0, 2)
-			sqls = append(sqls, fmt.Sprintf("USE %s;", job.schema))
-			sqls = append(sqls, job.sql)
-			if err := executeSQL(conn, sqls, true, job.skipConstraintCheck); err != nil {
-				log.Fatalf(errors.ErrorStack(err))
-			}
-
-			l.dataJobWg[poolId].Done()
+		job, ok := <-queue
+		if !ok {
+			log.Infof("[loader] worker exit")
+			return
 		}
+		sqls := make([]string, 0, 2)
+		sqls = append(sqls, fmt.Sprintf("USE %s;", job.schema))
+		sqls = append(sqls, job.sql)
+		if err := executeSQL(conn, sqls, true, job.skipConstraintCheck); err != nil {
+			log.Fatalf(errors.ErrorStack(err))
+		}
+
+		l.dataJobWg[poolId].Done()
 	}
 }
 

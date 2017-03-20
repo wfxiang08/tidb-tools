@@ -20,10 +20,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sort"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	"sort"
 )
 
 // CheckPoint represents checkpoint status
