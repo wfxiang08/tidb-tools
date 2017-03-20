@@ -51,6 +51,152 @@ type DataFiles []string
 // Tables represent all data files of a table collection as a map
 type Tables2DataFiles map[string]DataFiles
 
+type WorkerPool struct {
+	cfg        *Config
+	checkPoint *CheckPoint
+	conns      []*Conn
+	wg         sync.WaitGroup
+	JobQueue   chan *dataJob
+}
+
+func NewWorkerPool(cfg *Config, checkPoint *CheckPoint) (*WorkerPool, error) {
+	pool := new(WorkerPool)
+	pool.cfg = cfg
+	pool.checkPoint = checkPoint
+	conns, err := createConns(cfg.DB, cfg.PoolSize)
+	if err != nil {
+		return nil, err
+	}
+	pool.conns = conns
+	pool.JobQueue = make(chan *dataJob, jobCount)
+
+	return pool, nil
+}
+
+func (p *WorkerPool) run(tableJobQueue chan *tableJob, tableJobWg *sync.WaitGroup) {
+	// pool worker routines
+	for i := 0; i < p.cfg.PoolSize; i++ {
+		go func(workerId int) {
+			for {
+				job, ok := <-p.JobQueue
+				if !ok {
+					log.Infof("worker exit")
+					return
+				}
+				sqls := make([]string, 0, 2)
+				sqls = append(sqls, fmt.Sprintf("USE %s;", job.schema))
+				sqls = append(sqls, job.sql)
+				if err := executeSQL(p.conns[workerId], sqls, true, job.skipConstraintCheck); err != nil {
+					log.Fatalf(errors.ErrorStack(err))
+				}
+
+				p.wg.Done()
+			}
+		}(i)
+	}
+
+	// pool main routine
+	go func() {
+		for {
+			job, ok := <-tableJobQueue
+			if !ok {
+				log.Infof("pool exit.")
+				return
+			}
+
+			// restore a table
+			checkExist := true
+			for pos := job.startPos; pos < len(job.dataFiles); pos++ {
+				if err := p.restoreDataFile(p.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist); err != nil {
+					log.Fatalf("restore data file (%v) failed, err: %v", job.dataFiles[pos], err)
+				}
+				checkExist = false
+			}
+
+			tableJobWg.Done()
+		}
+	}()
+}
+
+func (p *WorkerPool) restoreDataFile(path, dataFile, schema, table string, checkExist bool) error {
+	log.Infof("[loader][restore table data sql]%s/%s[start]", path, dataFile)
+
+	err := p.dispatchSQL(fmt.Sprintf("%s/%s", p.cfg.Dir, dataFile), schema, table, checkExist)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	p.wg.Wait()
+
+	err = p.checkPoint.Save(dataFile)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	log.Infof("[loader][restore table data sql]%s/%s[finished]", p.cfg.Dir, dataFile)
+	return nil
+}
+
+func (p *WorkerPool) dispatchSQL(file, schema, table string, checkExist bool) error {
+	f, err := os.Open(file)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer f.Close()
+
+	data := make([]byte, 0, 1024*1024)
+	br := bufio.NewReader(f)
+	for {
+		line, err := br.ReadString('\n')
+		if err == io.EOF {
+			break
+		} else {
+			realLine := strings.TrimSpace(line[:len(line)-1])
+			if len(realLine) == 0 {
+				continue
+			}
+
+			data = append(data, []byte(realLine)...)
+			if data[len(data)-1] == ';' {
+				query := string(data)
+				data = data[0:0]
+				if strings.HasPrefix(query, "/*") && strings.HasSuffix(query, "*/;") {
+					continue
+				}
+
+				idx := strings.Index(query, "INSERT INTO")
+				if idx < 0 {
+					return errors.Errorf("[invalid insert sql][sql]%s", query)
+				}
+
+				var sql string
+				if checkExist {
+					sql = fmt.Sprintf("INSERT IGNORE INTO %s", query[idx+len("INSERT INTO"):])
+				} else {
+					sql = query
+				}
+
+				j := &dataJob{
+					sql:                 sql,
+					schema:              schema,
+					skipConstraintCheck: p.cfg.SkipConstraintCheck == 1,
+				}
+				if checkExist {
+					j.skipConstraintCheck = false
+				}
+				p.dispatchJob(j)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (p *WorkerPool) dispatchJob(job *dataJob) {
+	p.wg.Add(1)
+	p.JobQueue <- job
+}
+
 // Loader can load your mydumper data into MySQL database.
 type Loader struct {
 	sync.Mutex
@@ -62,11 +208,10 @@ type Loader struct {
 	// table -> data files
 	db2Tables map[string]Tables2DataFiles
 
-	conns [][]*Conn
-	tableJobWg    sync.WaitGroup
+	tableJobWg    *sync.WaitGroup
 	tableJobQueue chan *tableJob
-	dataJobWg     []sync.WaitGroup
-	dataJobQueues []chan *dataJob
+
+	pools []*WorkerPool
 }
 
 // NewLoader creates a new Loader.
@@ -76,14 +221,9 @@ func NewLoader(cfg *Config) *Loader {
 	loader.checkPoint = newCheckPoint(cfg.CheckPoint)
 
 	loader.db2Tables = make(map[string]Tables2DataFiles)
-	loader.conns = make([][]*Conn, 0, 16)
 	loader.tableJobQueue = make(chan *tableJob, jobCount)
-	loader.dataJobWg = make([]sync.WaitGroup, 0, cfg.TableConcurrency)
-	loader.dataJobQueues = make([]chan *dataJob, 0, cfg.TableConcurrency)
-	for i := 0; i < cfg.TableConcurrency; i++ {
-		loader.dataJobWg = append(loader.dataJobWg, sync.WaitGroup{})
-		loader.dataJobQueues = append(loader.dataJobQueues, make(chan *dataJob, jobCount))
-	}
+	loader.tableJobWg = new(sync.WaitGroup)
+	loader.pools = make([]*WorkerPool, 0, cfg.PoolCount)
 
 	return loader
 }
@@ -96,11 +236,27 @@ func (l *Loader) Restore() error {
 	}
 
 	l.checkPoint.Calc(l.db2Tables)
+	if err := l.initAndStartWorkerPools(); err != nil {
+		log.Errorf("[loader] init and start worker pools failed, err[%v]", err)
+		return errors.Trace(err)
+	}
 
 	if err := l.restoreData(); err != nil {
 		return errors.Trace(err)
 	}
 
+	return nil
+}
+
+func (l *Loader) initAndStartWorkerPools() error {
+	for i := 0; i < l.cfg.PoolCount; i++ {
+		pool, err := NewWorkerPool(l.cfg, l.checkPoint)
+		if err != nil {
+			return err
+		}
+		pool.run(l.tableJobQueue, l.tableJobWg)
+		l.pools = append(l.pools, pool)
+	}
 	return nil
 }
 
@@ -225,11 +381,6 @@ func (l *Loader) prepare() error {
 	return l.prepareDataFiles(files)
 }
 
-func (l *Loader) dispatchJob(poolId int, job *dataJob) {
-	l.dataJobWg[poolId].Add(1)
-	l.dataJobQueues[poolId] <- job
-}
-
 func (l *Loader) restoreSchema(conn *Conn, sqlFile string, schema string) error {
 	f, err := os.Open(sqlFile)
 	if err != nil {
@@ -274,80 +425,6 @@ func (l *Loader) restoreSchema(conn *Conn, sqlFile string, schema string) error 
 	return nil
 }
 
-func (l *Loader) dispatchSQL(poolId int, file string, schema string, table string, checkExist bool) error {
-	f, err := os.Open(file)
-	if err != nil {
-		return errors.Trace(err)
-	}
-	defer f.Close()
-
-	data := make([]byte, 0, 1024*1024)
-	br := bufio.NewReader(f)
-	for {
-		line, err := br.ReadString('\n')
-		if err == io.EOF {
-			break
-		} else {
-			realLine := strings.TrimSpace(line[:len(line)-1])
-			if len(realLine) == 0 {
-				continue
-			}
-
-			data = append(data, []byte(realLine)...)
-			if data[len(data)-1] == ';' {
-				query := string(data)
-				data = data[0:0]
-				if strings.HasPrefix(query, "/*") && strings.HasSuffix(query, "*/;") {
-					continue
-				}
-
-				idx := strings.Index(query, "INSERT INTO")
-				if idx < 0 {
-					return errors.Errorf("[invalid insert sql][sql]%s", query)
-				}
-
-				var sql string
-				if checkExist {
-					sql = fmt.Sprintf("INSERT IGNORE INTO %s", query[idx+len("INSERT INTO"):])
-				} else {
-					sql = query
-				}
-
-				j := &dataJob{
-					sql:                 sql,
-					schema:              schema,
-					skipConstraintCheck: l.cfg.SkipConstraintCheck == 1,
-				}
-				if checkExist {
-					j.skipConstraintCheck = false
-				}
-				l.dispatchJob(poolId, j)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (l *Loader) restoreDataFile(poolId int, path string, dataFile string, schema string, table string, checkExist bool) error {
-	log.Infof("[loader][restore table data sql]%s/%s[start]", path, dataFile)
-
-	err := l.dispatchSQL(poolId, fmt.Sprintf("%s/%s", path, dataFile), schema, table, checkExist)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	l.dataJobWg[poolId].Wait()
-
-	err = l.checkPoint.Save(dataFile)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	log.Infof("[loader][restore table data sql]%s/%s[finished]", path, dataFile)
-	return nil
-}
-
 func causeErr(err error) error {
 	var e error
 	for {
@@ -361,89 +438,27 @@ func causeErr(err error) error {
 	return e
 }
 
-/*
- *                        main-thread
- * |        table-worker       |         table-worker       |
- * | data-worker | data-worker |  data-worker | data-worker |
- */
-
-func (l *Loader) runTableWorker(poolId int, queue chan *tableJob) {
-	for {
-		job, ok := <-queue
-		if !ok {
-			log.Infof("table worker [%d] exit.", poolId)
-			return
-		}
-
-		// restore a table
-		checkExist := true
-		for pos := job.startPos; pos < len(job.dataFiles); pos++ {
-			l.restoreDataFile(poolId, l.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist)
-			checkExist = false
-		}
-
-		l.tableJobWg.Done()
-	}
-}
-
-func (l *Loader) runDataWorker(poolId int, conn *Conn, queue chan *dataJob) {
-	for {
-		job, ok := <-queue
-		if !ok {
-			log.Infof("[loader] worker exit")
-			return
-		}
-		sqls := make([]string, 0, 2)
-		sqls = append(sqls, fmt.Sprintf("USE %s;", job.schema))
-		sqls = append(sqls, job.sql)
-		if err := executeSQL(conn, sqls, true, job.skipConstraintCheck); err != nil {
-			log.Fatalf(errors.ErrorStack(err))
-		}
-
-		l.dataJobWg[poolId].Done()
-	}
-}
-
-func (l *Loader) prepareWorkers() error {
-	for i := 0; i < l.cfg.TableConcurrency; i++ {
-		conns, err := createConns(l.cfg.DB, l.cfg.WorkersEachTable)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		l.conns = append(l.conns, conns)
-		l.dataJobQueues = append(l.dataJobQueues, make(chan *dataJob, jobCount))
-	}
-
-	// run table workers and data workers
-	for i := 0; i < l.cfg.TableConcurrency; i++ {
-		go l.runTableWorker(i, l.tableJobQueue)
-
-		for j := 0; j < l.cfg.WorkersEachTable; j++ {
-			go l.runDataWorker(i, l.conns[i][j], l.dataJobQueues[i])
-		}
-	}
-
-	return nil
-}
-
 func (l *Loader) dispatchTableJob(job *tableJob) {
 	l.tableJobWg.Add(1)
 	l.tableJobQueue <- job
 }
 
 func (l *Loader) restoreData() error {
-	if err := l.prepareWorkers(); err != nil {
-		log.Warnf("prepare workers failed. error: %v", err)
-		return errors.Trace(err)
-	}
-
 	var err error
 	conn, err := createConn(l.cfg.DB)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	for db, tables := range l.db2Tables {
+	// restore db in sort
+	dbs := make([]string, 0, len(l.db2Tables))
+	for db := range l.db2Tables {
+		dbs = append(dbs, db)
+	}
+	sort.Strings(dbs)
+	for _, db := range dbs {
+		tables := l.db2Tables[db]
+
 		// create db
 		dbFile := fmt.Sprintf("%s/%s-schema-create.sql", l.cfg.Dir, db)
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
@@ -457,7 +472,14 @@ func (l *Loader) restoreData() error {
 		}
 		log.Infof("[loader][run db schema]%s[finished]", dbFile)
 
-		for table, dataFiles := range tables {
+		// restore table in sort
+		tnames := make([]string, 0, len(tables))
+		for t := range tables {
+			tnames = append(tnames, t)
+		}
+		sort.Strings(tnames)
+		for _, table := range tnames {
+			dataFiles := tables[table]
 			key := strings.Join([]string{db, table}, ".")
 			if _, ok := l.checkPoint.FinishedTables[key]; ok {
 				log.Infof("table (%s) has finished, skip.", key)
