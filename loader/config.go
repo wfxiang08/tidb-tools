@@ -29,9 +29,10 @@ func NewConfig() *Config {
 
 	fs.StringVar(&cfg.Dir, "d", "./", "Directory of the dump to import")
 
-	fs.IntVar(&cfg.PoolSize, "t", 8, "Number of threads for each pool")
-	fs.IntVar(&cfg.PoolCount, "pc", 1, "Concurrency of table level")
-	fs.IntVar(&cfg.FileNumPerBlock, "file-num-per-block", 64, "Number of data files per block")
+	fs.IntVar(&cfg.PoolSize, "t", 4, "Number of threads for each pool")
+	fs.IntVar(&cfg.PoolCount, "pc", 16, `Number of pools restore concurrently, one pool restore one block
+	at a time, increase this as TiKV nodes increase`)
+	fs.IntVar(&cfg.FileNumPerBlock, "file-num-per-block", 64, `Number of data files per block`)
 
 	fs.StringVar(&cfg.DB.Host, "h", "127.0.0.1", "The host to connect to")
 	fs.StringVar(&cfg.DB.User, "u", "root", "Username with privileges to run the dump")

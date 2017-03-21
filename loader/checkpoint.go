@@ -26,6 +26,10 @@ import (
 	"strconv"
 )
 
+var (
+	FileNumPerBlockSuffix = ".file-num-per-block"
+)
+
 // CheckPoint represents checkpoint status
 type CheckPoint struct {
 	sync.RWMutex
@@ -118,8 +122,8 @@ func (cp *CheckPoint) load() error {
 		}
 
 		// read last FileNumPerBlock recorded in checkpoint file
-		if cp.FileNumPerBlock < 0 && strings.HasSuffix(l, ".file-num-per-block") {
-			idx := strings.Index(l, ".file-num-per-block")
+		if cp.FileNumPerBlock < 0 && strings.HasSuffix(l, FileNumPerBlockSuffix) {
+			idx := strings.Index(l, FileNumPerBlockSuffix)
 			fileNumPerBlock, err := strconv.Atoi(l[:idx])
 			if err != nil {
 				log.Fatalf("invalid file num per block (%s) in checkpoint file", l)
@@ -175,6 +179,6 @@ func (cp *CheckPoint) Save(filename string) error {
 
 // SaveFileNumPerBlock save file-num-per-block into checkpoint file
 func (cp *CheckPoint) SaveFileNumPerBlock(n int) error {
-	line := fmt.Sprintf("%d.file-num-per-block", n)
+	line := fmt.Sprintf("%d%s", n, FileNumPerBlockSuffix)
 	return cp.Save(line)
 }
