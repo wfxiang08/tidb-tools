@@ -20,32 +20,27 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sort"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"strconv"
 )
 
 // CheckPoint represents checkpoint status
 type CheckPoint struct {
 	sync.RWMutex
-	path               string
-	restoredFilesIndex map[string]Tables2DataFiles
-	restoredFiles      map[string]struct{}
-
-	// table finished
-	FinishedTables map[string]struct{}
-	// table partial restored
-	PartialRestoredTables map[string]int
+	path            string
+	restoredFiles   map[string]map[string]Set
+	finishedTables  Set
+	FileNumPerBlock int
 }
 
 func newCheckPoint(filename string) *CheckPoint {
 	cp := &CheckPoint{
-		path:                  filename,
-		restoredFilesIndex:    make(map[string]Tables2DataFiles),
-		restoredFiles:         make(map[string]struct{}),
-		FinishedTables:        make(map[string]struct{}),
-		PartialRestoredTables: make(map[string]int),
+		path:            filename,
+		restoredFiles:   make(map[string]map[string]Set),
+		finishedTables:  make(Set),
+		FileNumPerBlock: -1,
 	}
 	if err := cp.load(); err != nil {
 		log.Fatalf("recover from check point failed, %v", err)
@@ -53,13 +48,28 @@ func newCheckPoint(filename string) *CheckPoint {
 	return cp
 }
 
-// Calculate the check point for tables partial restored.
-func (cp *CheckPoint) Calc(allFiles map[string]Tables2DataFiles) {
-	if len(cp.restoredFiles) == 0 {
-		return
+// Get restored data files for table
+func (cp *CheckPoint) GetRestoredFiles(db, table string) Set {
+	if tables, ok := cp.restoredFiles[db]; ok {
+		if restoredFiles, ok := tables[table]; ok {
+			return restoredFiles
+		}
 	}
+	return make(Set)
+}
 
-	for db, tables := range cp.restoredFilesIndex {
+// Query if table finished.
+func (cp *CheckPoint) IsTableFinished(db, table string) bool {
+	key := strings.Join([]string{db, table}, ".")
+	if _, ok := cp.finishedTables[key]; ok {
+		return true
+	}
+	return false
+}
+
+// Calculate which table has finished and which table partial restored.
+func (cp *CheckPoint) CalcProgress(allFiles map[string]Tables2DataFiles) {
+	for db, tables := range cp.restoredFiles {
 		dbTables, ok := allFiles[db]
 		if !ok {
 			log.Fatalf("db (%s) not exist in data files, but in checkpoint.", db)
@@ -70,25 +80,20 @@ func (cp *CheckPoint) Calc(allFiles map[string]Tables2DataFiles) {
 			if !ok {
 				log.Fatalf("table (%s) not exist in db (%s) in data files, but in checkpoint", table, db)
 			}
-			// compare restored files and data files for this table
-			sort.Strings(files)
-			sort.Strings(restoredFiles)
+
 			restoredCount := len(restoredFiles)
 			totalCount := len(files)
 
 			t := strings.Join([]string{db, table}, ".")
 			if restoredCount == totalCount {
-				cp.FinishedTables[t] = struct{}{}
-			} else if restoredCount < totalCount {
-				// check point for this table
-				cp.PartialRestoredTables[t] = restoredCount
-			} else {
-				log.Fatalf("restored count (%d) gt total count (%d) for table (%s)", restoredCount, totalCount, t)
+				cp.finishedTables[t] = struct{}{}
+			} else if restoredCount > totalCount {
+				log.Fatalf("restored count greater than total count for table[%v]", table)
 			}
 		}
 	}
 
-	log.Infof("calc checkpoint finished. finished tables (%v), partial tables (%v), ", cp.FinishedTables, cp.PartialRestoredTables)
+	log.Infof("calc checkpoint finished. finished tables (%v)", cp.finishedTables)
 }
 
 func (cp *CheckPoint) load() error {
@@ -112,8 +117,19 @@ func (cp *CheckPoint) load() error {
 			continue
 		}
 
+		// read last FileNumPerBlock recorded in checkpoint file
+		if cp.FileNumPerBlock < 0 && strings.HasSuffix(l, ".file-num-per-block") {
+			idx := strings.Index(l, ".file-num-per-block")
+			fileNumPerBlock, err := strconv.Atoi(l[:idx])
+			if err != nil {
+				log.Fatalf("invalid file num per block (%s) in checkpoint file", l)
+			}
+			cp.FileNumPerBlock = fileNumPerBlock
+			continue
+		}
+
 		if !strings.HasSuffix(l, ".sql") || strings.HasSuffix(l, "-schema.sql") {
-			log.Fatalf("invalid sql file (%s) in checkpoint file", l)
+			log.Fatalf("invalid data sql file (%s) in checkpoint file", l)
 		}
 
 		idx := strings.Index(l, ".sql")
@@ -124,16 +140,15 @@ func (cp *CheckPoint) load() error {
 		}
 
 		// fields[0] -> db name, fields[1] -> table name
-		if _, ok := cp.restoredFilesIndex[fields[0]]; !ok {
-			cp.restoredFilesIndex[fields[0]] = make(Tables2DataFiles)
+		if _, ok := cp.restoredFiles[fields[0]]; !ok {
+			cp.restoredFiles[fields[0]] = make(map[string]Set)
 		}
-		tables := cp.restoredFilesIndex[fields[0]]
+		tables := cp.restoredFiles[fields[0]]
 		if _, ok := tables[fields[1]]; !ok {
-			tables[fields[1]] = make(DataFiles, 0, 16)
+			tables[fields[1]] = make(Set)
 		}
-		// dataFiles contains data files has restored for this table)
-		tables[fields[1]] = append(tables[fields[1]], l)
-		cp.restoredFiles[l] = struct{}{}
+		restoredFiles := tables[fields[1]]
+		restoredFiles[l] = struct{}{}
 	}
 
 	return nil
@@ -143,8 +158,6 @@ func (cp *CheckPoint) load() error {
 func (cp *CheckPoint) Save(filename string) error {
 	cp.Lock()
 	defer cp.Unlock()
-
-	cp.restoredFiles[filename] = struct{}{}
 
 	// add to checkpoint file
 	f, err := os.OpenFile(cp.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
@@ -158,4 +171,10 @@ func (cp *CheckPoint) Save(filename string) error {
 	}
 
 	return nil
+}
+
+// SaveFileNumPerBlock save file-num-per-block into checkpoint file
+func (cp *CheckPoint) SaveFileNumPerBlock(n int) error {
+	line := fmt.Sprintf("%d.file-num-per-block", n)
+	return cp.Save(line)
 }

@@ -26,6 +26,19 @@ import (
 	"github.com/ngaut/log"
 )
 
+var (
+	jobCount      = 1000
+	maxRetryCount = 10
+)
+
+type Set map[string]struct{}
+
+// DataFiles represent all data files for a single table
+type DataFiles []string
+
+// Tables represent all data files of a table collection as a map
+type Tables2DataFiles map[string]DataFiles
+
 type dataJob struct {
 	sql                 string
 	schema              string
@@ -33,23 +46,14 @@ type dataJob struct {
 }
 
 type tableJob struct {
-	schema     string
-	table      string
-	dataFiles  DataFiles
-	startPos   int
-	checkExist bool
+	schema        string
+	table         string
+	dataFiles     DataFiles
+	restoredFiles Set
+	startPos      int
+	endPos        int
+	checkExist    bool
 }
-
-var (
-	jobCount      = 1000
-	maxRetryCount = 10
-)
-
-// DataFiles represent all data files for a single table
-type DataFiles []string
-
-// Tables represent all data files of a table collection as a map
-type Tables2DataFiles map[string]DataFiles
 
 type WorkerPool struct {
 	cfg        *Config
@@ -106,7 +110,10 @@ func (p *WorkerPool) run(tableJobQueue chan *tableJob, tableJobWg *sync.WaitGrou
 
 			// restore a table
 			checkExist := true
-			for pos := job.startPos; pos < len(job.dataFiles); pos++ {
+			for pos := job.startPos; pos < job.endPos; pos++ {
+				if _, ok := job.restoredFiles[job.dataFiles[pos]]; ok {
+					continue
+				}
 				if err := p.restoreDataFile(p.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist); err != nil {
 					log.Fatalf("restore data file (%v) failed, err: %v", job.dataFiles[pos], err)
 				}
@@ -235,7 +242,16 @@ func (l *Loader) Restore() error {
 		return errors.Trace(err)
 	}
 
-	l.checkPoint.Calc(l.db2Tables)
+	// check last file-num-per-block and current file-num-per-block, they must equal
+	if l.checkPoint.FileNumPerBlock < 0 {
+		l.checkPoint.SaveFileNumPerBlock(l.cfg.FileNumPerBlock)
+	} else if l.checkPoint.FileNumPerBlock != l.cfg.FileNumPerBlock {
+		log.Fatalf(`[loader] last FileNumPerBlock is (%d), but current FileNumPerBlock is (%d),
+		please restart loader with FileNumPerBlock equal to the last time.`,
+			l.checkPoint.FileNumPerBlock, l.cfg.FileNumPerBlock)
+	}
+
+	l.checkPoint.CalcProgress(l.db2Tables)
 	if err := l.initAndStartWorkerPools(); err != nil {
 		log.Errorf("[loader] init and start worker pools failed, err[%v]", err)
 		return errors.Trace(err)
@@ -480,77 +496,61 @@ func (l *Loader) restoreData() error {
 		sort.Strings(tnames)
 		for _, table := range tnames {
 			dataFiles := tables[table]
-			key := strings.Join([]string{db, table}, ".")
-			if _, ok := l.checkPoint.FinishedTables[key]; ok {
-				log.Infof("table (%s) has finished, skip.", key)
+
+			if l.checkPoint.IsTableFinished(db, table) {
+				log.Infof("table (%s.%s) has finished, skip.", db, table)
 				continue
 			}
 
-			startPos := 0
-			checkExist := false
+			// create table
+			tableExist := false
+			tableFile := fmt.Sprintf("%s/%s.%s-schema.sql", l.cfg.Dir, db, table)
+			err := l.restoreSchema(conn, tableFile, db)
+			if err != nil {
+				if isErrTableExists(err) {
+					log.Infof("[loader][table already exists, skip]%s", tableFile)
+					tableExist = true
+				} else {
+					log.Fatalf("run table schema failed - %v", errors.ErrorStack(err))
+				}
+			}
+			log.Infof("[loader][run table schema]%s[finished]", tableFile)
+
+			// check if has unique index
+			hasUniqIdx, err := hasUniqIndex(conn, db, table)
+			if err != nil {
+				log.Fatalf("check unique index failed. err: %v", err)
+			}
+
+			// if partial data has restored for table that not have unique index, we must truncate the table
+			// and restart from the very begin.
+			if tableExist && !hasUniqIdx {
+				err = truncateTable(conn, db, table)
+				if err != nil {
+					log.Fatalf("truncate table (%s.%s) failed, err: %v", db, table, err)
+				}
+			}
+
+			// split this table into multi blocks and restore concurrently
 			sort.Strings(dataFiles)
-			if pos, ok := l.checkPoint.PartialRestoredTables[key]; ok {
-				hasUniqIdx, err := hasUniqIndex(conn, db, table)
-				if err != nil {
-					log.Fatalf("check unique index failed. err: %v", err)
+			restoredFiles := l.checkPoint.GetRestoredFiles(db, table)
+			for startPos, endPos := 0, 0; startPos < len(dataFiles); startPos = endPos {
+				endPos = startPos + l.cfg.FileNumPerBlock
+				if endPos > len(dataFiles) {
+					endPos = len(dataFiles)
 				}
-				if hasUniqIdx {
-					startPos = pos
-					checkExist = true
-				} else {
-					err = truncateTable(conn, db, table)
-					if err != nil {
-						log.Fatalf("trucate table (%s.%s) failed, err: %v", db, table, err)
-					}
-					startPos = 0
-					checkExist = false
-				}
-			} else {
-				// create table
-				tableExist := false
-				tableFile := fmt.Sprintf("%s/%s.%s-schema.sql", l.cfg.Dir, db, table)
-				log.Infof("[loader][run table schema]%s[start]", tableFile)
-				err := l.restoreSchema(conn, tableFile, db)
-				if err != nil {
-					if isErrTableExists(err) {
-						log.Infof("[loader][table already exists, skip]%s", tableFile)
-						tableExist = true
-					} else {
-						log.Fatalf("run table schema failed - %v", errors.ErrorStack(err))
-					}
-				}
-				log.Infof("[loader][run table schema]%s[finished]", tableFile)
 
-				if tableExist {
-					hasUniqIdx, err := hasUniqIndex(conn, db, table)
-					if err != nil {
-						log.Fatalf("check unique index failed. err: %v", err)
-					}
-					if hasUniqIdx {
-						startPos = 0
-						checkExist = true
-					} else {
-						err = truncateTable(conn, db, table)
-						if err != nil {
-							log.Fatalf("trucate table (%s.%s) failed, err: %v", db, table, err)
-						}
-						startPos = 0
-						checkExist = false
-					}
-				} else {
-					startPos = 0
-					checkExist = false
+				j := &tableJob{
+					schema:        db,
+					table:         table,
+					dataFiles:     dataFiles,
+					restoredFiles: restoredFiles,
+					startPos:      startPos,
+					endPos:        endPos,
+					checkExist:    tableExist && hasUniqIdx,
 				}
+				l.dispatchTableJob(j)
 			}
-
-			j := &tableJob{
-				schema:     db,
-				table:      table,
-				dataFiles:  dataFiles,
-				startPos:   startPos,
-				checkExist: checkExist,
-			}
-			l.dispatchTableJob(j)
 		}
 	}
 
