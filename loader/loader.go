@@ -522,6 +522,8 @@ func (l *Loader) restoreData() error {
 				log.Fatalf("check unique index failed. err: %v", err)
 			}
 
+			restoredFiles := l.checkPoint.GetRestoredFiles(db, table)
+
 			// if partial data has restored for table that not have unique index, we must truncate the table
 			// and restart from the very begin.
 			if tableExist && !hasUniqIdx {
@@ -529,11 +531,12 @@ func (l *Loader) restoreData() error {
 				if err != nil {
 					log.Fatalf("truncate table (%s.%s) failed, err: %v", db, table, err)
 				}
+
+				restoredFiles = make(Set)
 			}
 
 			// split this table into multi blocks and restore concurrently
 			sort.Strings(dataFiles)
-			restoredFiles := l.checkPoint.GetRestoredFiles(db, table)
 			for startPos, endPos := 0, 0; startPos < len(dataFiles); startPos = endPos {
 				endPos = startPos + l.cfg.FileNumPerBlock
 				if endPos > len(dataFiles) {
