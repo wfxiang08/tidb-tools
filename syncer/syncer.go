@@ -564,7 +564,7 @@ func (s *Syncer) run() error {
 
 		switch ev := e.Event.(type) {
 		case *replication.RotateEvent:
-			binlogEventsTotal.WithLabelValues("rorate").Inc()
+			binlogEventsTotal.WithLabelValues("rotate").Inc()
 
 			pos.Name = string(ev.NextLogName)
 			pos.Pos = uint32(ev.Position)
