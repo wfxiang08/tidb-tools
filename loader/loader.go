@@ -100,29 +100,27 @@ func (p *WorkerPool) run(tableJobQueue chan *tableJob, tableJobWg *sync.WaitGrou
 	}
 
 	// pool main routine
-	go func() {
-		for {
-			job, ok := <-tableJobQueue
-			if !ok {
-				log.Infof("pool exit.")
-				return
-			}
-
-			// restore a table
-			checkExist := true
-			for pos := job.startPos; pos < job.endPos; pos++ {
-				if _, ok := job.restoredFiles[job.dataFiles[pos]]; ok {
-					continue
-				}
-				if err := p.restoreDataFile(p.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist); err != nil {
-					log.Fatalf("restore data file (%v) failed, err: %v", job.dataFiles[pos], err)
-				}
-				checkExist = false
-			}
-
-			tableJobWg.Done()
+	for {
+		job, ok := <-tableJobQueue
+		if !ok {
+			log.Infof("pool exit.")
+			return
 		}
-	}()
+
+		// restore a table
+		checkExist := true
+		for pos := job.startPos; pos < job.endPos; pos++ {
+			if _, ok := job.restoredFiles[job.dataFiles[pos]]; ok {
+				continue
+			}
+			if err := p.restoreDataFile(p.cfg.Dir, job.dataFiles[pos], job.schema, job.table, checkExist && job.checkExist); err != nil {
+				log.Fatalf("restore data file (%v) failed, err: %v", job.dataFiles[pos], err)
+			}
+			checkExist = false
+		}
+
+		tableJobWg.Done()
+	}
 }
 
 func (p *WorkerPool) restoreDataFile(path, dataFile, schema, table string, checkExist bool) error {
@@ -243,7 +241,7 @@ func (l *Loader) Restore() error {
 	}
 
 	// check last file-num-per-block and current file-num-per-block, they must equal
-	if l.checkPoint.FileNumPerBlock < 0 {
+	if l.checkPoint.FileNumPerBlock <= 0 {
 		l.checkPoint.SaveFileNumPerBlock(l.cfg.FileNumPerBlock)
 	} else if l.checkPoint.FileNumPerBlock != l.cfg.FileNumPerBlock {
 		log.Fatalf(`[loader] last FileNumPerBlock is (%d), but current FileNumPerBlock is (%d),
@@ -270,7 +268,9 @@ func (l *Loader) initAndStartWorkerPools() error {
 		if err != nil {
 			return err
 		}
-		pool.run(l.tableJobQueue, l.tableJobWg)
+
+		go pool.run(l.tableJobQueue, l.tableJobWg)
+
 		l.pools = append(l.pools, pool)
 	}
 	return nil

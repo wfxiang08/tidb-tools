@@ -20,10 +20,10 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"strconv"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
-	"strconv"
 )
 
 var (
