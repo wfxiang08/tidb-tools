@@ -8,78 +8,66 @@ syncer is a tool for syncing source database data to target database which is co
 Usage of syncer:
   -L string
         log level: debug, info, warn, error, fatal (default "info")
+  -V    prints version and exit
   -b int
         batch commit count (default 10)
   -c int
         parallel worker count (default 16)
   -config string
-        Config file
+        path to config file
+  -enable-gtid
+        enable gtid mode
+  -log-file string
+        log file path
+  -log-rotate string
+        log file rotate type, hour/day (default "day")
   -meta string
         syncer meta info (default "syncer.meta")
-  -pprof-addr string
-        pprof addr (default "", turned off)
   -server-id int
         MySQL slave server ID (default 101)
+  -status-addr string
+        status addr
 ```
 
 ## Config
 ```
-// log level info
 log-level = "info"
 
-// server id, used for register slave
 server-id = 101
 
-// meta for binlog savepoint
-meta = "syncer.meta"
+meta = "./syncer.meta"
+worker-count = 16
+batch = 10
 
-// parallel db worker count
-worker-count = 1
-
-// batch commit count
-batch = 1
-
-// pprof addr
 pprof-addr = ":10081"
 
-// from MySQL config
+##replicate-do-db priority over replicate-do-table if have same db name
+##and we support regex expression , start with '~' declare use regex expression.
+#
+#replicate-do-db = ["~^b.*","s1"]
+#[[replicate-do-table]]
+#db-name ="test"
+#tbl-name = "log"
+
+#[[replicate-do-table]]
+#db-name ="test"
+#tbl-name = "~^a.*"
+
+# skip prefix mathched sqls
+# skip-sqls = ["^ALTER\\s+USER", "^CREATE\\s+USER"]
+
+
 [from]
 host = "127.0.0.1"
 user = "root"
 password = ""
 port = 3306
 
-// to TiDB config
 [to]
 host = "127.0.0.1"
 user = "root"
 password = ""
 port = 4000
-
-# specifies to synchronize tables under db1 and db2
-replicate-do-db = ["db1","db2"]
-
-# not synchronize tables under db1 and db2
-replicate-ignore-db = ["db1","db2"]
-
-# specifies to synchronize db1.table1
-[[replicate-do-table]]
-db-name ="db1"
-tbl-name = "table1"
-
-# specifies to synchronize db3.table2
-[[replicate-do-table]]
-db-name ="db3"
-tbl-name = "table2"
-
-# not synchronize table3 under db1
-[[replicate-ignore-table]]
-db-name = "db1"
-tbl-name = "table3"
-
-# supports regexp, beginning with ~
-# synchronize all databases that begin with test
-replicate-do-db = ["~^test.*"]
 ```
 
 ## Example

@@ -22,6 +22,9 @@ pprof-addr = ":10081"
 #db-name ="test"
 #tbl-name = "~^a.*"
 
+# skip prefix mathched sqls
+# skip-sqls = ["^ALTER\\s+USER", "^CREATE\\s+USER"]
+
 
 [from]
 host = "127.0.0.1"
