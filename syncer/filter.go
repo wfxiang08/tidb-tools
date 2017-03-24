@@ -14,7 +14,6 @@ var (
 		// For mariadb, for query event, like `# Dumm`
 		// But i don't know what is the meaning of this event.
 		"^#",
-
 		"^GRANT",
 		"^REVOKE",
 		"^FLUSH\\s+PRIVILEGES",
@@ -26,6 +25,7 @@ var (
 		"^CREATE\\s+ALGORITHM",
 		"^DROP\\s+USER",
 		"^ALTER\\s+USER",
+		"^CREATE\\s+USER",
 	}
 	skipPatterns *regexp.Regexp
 )
