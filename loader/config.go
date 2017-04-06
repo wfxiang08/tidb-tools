@@ -29,8 +29,10 @@ func NewConfig() *Config {
 
 	fs.StringVar(&cfg.Dir, "d", "./", "Directory of the dump to import")
 
-	fs.IntVar(&cfg.Batch, "q", 1, "Number of queries per transaction, default 1")
-	fs.IntVar(&cfg.Worker, "t", 4, "Number of threads to use")
+	fs.IntVar(&cfg.PoolSize, "t", 4, "Number of threads for each pool")
+	fs.IntVar(&cfg.PoolCount, "pc", 16, `Number of pools restore concurrently, one pool restore one block
+	at a time, increase this as TiKV nodes increase`)
+	fs.IntVar(&cfg.FileNumPerBlock, "file-num-per-block", 64, `Number of data files per block`)
 
 	fs.StringVar(&cfg.DB.Host, "h", "127.0.0.1", "The host to connect to")
 	fs.StringVar(&cfg.DB.User, "u", "root", "Username with privileges to run the dump")
@@ -76,9 +78,11 @@ type Config struct {
 
 	PprofAddr string `toml:"pprof-addr" json:"pprof-addr"`
 
-	Worker int `toml:"worker" json:"worker"`
+	FileNumPerBlock int `toml:"file-num-per-block" json:"file-num-per-block"`
 
-	Batch int `toml:"batch" json:"batch"`
+	PoolSize int `toml:"pool-size" json:"pool-size"`
+
+	PoolCount int `toml:"pool-count" json:"pool-count"`
 
 	Dir string `toml:"dir" json:"dir"`
 
