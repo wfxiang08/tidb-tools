@@ -68,8 +68,10 @@ func executeSQL(conn *Conn, sqls []string, enableRetry bool, skipConstraintCheck
 		if i > 0 {
 			skipConstraintCheck = false
 		}
-		if err = executeSQLImp(conn.db, sqls, skipConstraintCheck); err != nil && !isErrDupEntry(err) {
-			continue
+		if err = executeSQLImp(conn.db, sqls, skipConstraintCheck); err != nil {
+			if !isErrDupEntry(err) {
+				continue
+			}
 		}
 
 		return nil
