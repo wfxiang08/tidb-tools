@@ -382,10 +382,12 @@ func (s *Syncer) addJob(job *job) error {
 		s.jobWg.Wait()
 	}
 
-	s.jobWg.Add(1)
-	log.Debugf("add job [sql]%s; [position]%v", job.sql, job.pos)
-	idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
-	s.jobs[idx] <- job
+	if len(job.sql) > 0 {
+		s.jobWg.Add(1)
+		log.Debugf("add job [sql]%s; [position]%v", job.sql, job.pos)
+		idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
+		s.jobs[idx] <- job
+	}
 
 	wait := s.checkWait(job)
 	if wait {
@@ -581,6 +583,9 @@ func (s *Syncer) run() error {
 			table := &table{}
 			if s.skipRowEvent(string(ev.Table.Schema), string(ev.Table.Table)) {
 				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
+				if err = s.recordSkipSQLsPos(insert, pos); err != nil {
+					return errors.Trace(err)
+				}
 
 				log.Warnf("[skip RowsEvent]db:%s table:%s", ev.Table.Schema, ev.Table.Table)
 				continue
@@ -657,7 +662,6 @@ func (s *Syncer) run() error {
 			if err != nil {
 				if s.skipQueryEvent(sql, string(ev.Schema)) {
 					binlogSkippedEventsTotal.WithLabelValues("query").Inc()
-
 					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
 					continue
 				}
@@ -671,6 +675,10 @@ func (s *Syncer) run() error {
 			for _, sql := range sqls {
 				if s.skipQueryDDL(sql, string(ev.Schema)) {
 					binlogSkippedEventsTotal.WithLabelValues("query_ddl").Inc()
+					if err = s.recordSkipSQLsPos(ddl, pos); err != nil {
+						return errors.Trace(err)
+					}
+
 					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
 					continue
 				}
@@ -815,6 +823,18 @@ func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, bool, error) 
 	}
 
 	return s.startSyncByPosition()
+}
+
+// record skip ddl/dml sqls' position
+// make newJob's sql argument empty to distinguish normal sql and skips sql
+func (s *Syncer) recordSkipSQLsPos(op opType, pos mysql.Position) error {
+	job := newJob(op, "", nil, "", false, pos)
+	err := s.addJob(job)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return nil
 }
 
 func (s *Syncer) startSyncByPosition() (*replication.BinlogStreamer, bool, error) {
