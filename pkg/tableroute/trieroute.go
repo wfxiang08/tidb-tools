@@ -187,7 +187,7 @@ func (t *trieRouter) matchNode(n *node, origin string) string {
 // assume wlock is held
 func (t *trieRouter) addToCache(pattern, target string) {
 	for origin := range t.cache {
-		if matchLiteral(origin, pattern) {
+		if matchOrigin(origin, pattern) {
 			t.cache[origin] = target
 		}
 	}
@@ -196,16 +196,16 @@ func (t *trieRouter) addToCache(pattern, target string) {
 // assume wlock is held
 func (t *trieRouter) removeFromCache(pattern string) {
 	for origin := range t.cache {
-		if !matchLiteral(origin, pattern) {
+		if !matchOrigin(origin, pattern) {
 			continue
 		}
 		delete(t.cache, origin)
 	}
 }
 
-func matchLiteral(literal, pattern string) bool {
+func matchOrigin(origin, pattern string) bool {
 	index := 0
-	length := len(literal)
+	length := len(origin)
 	for i := 0; i < len(pattern); i++ {
 		if index >= length {
 			return false
@@ -216,7 +216,7 @@ func matchLiteral(literal, pattern string) bool {
 			return true
 		case qwc:
 		default:
-			if b != literal[index] {
+			if b != origin[index] {
 				return false
 			}
 		}
