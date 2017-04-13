@@ -41,6 +41,8 @@ type Router interface {
 	Match(origin string) string
 	// Remove will remove the matched rule
 	Remove(pattern string) error
+	// AllRules will returns all rules
+	AllRules() map[string]string
 }
 
 type trieRouter struct {
@@ -82,6 +84,7 @@ func (t *trieRouter) Insert(pattern, target string) error {
 	var entity *item
 	for i := range pattern {
 		if hadAwc {
+			t.Unlock()
 			return errors.Errorf("pattern %s is invaild", pattern)
 		}
 
@@ -116,12 +119,9 @@ func (t *trieRouter) Insert(pattern, target string) error {
 		return errors.Errorf("subjects has conflict: had %s, want to insert %s", entity.word, target)
 	}
 
-	if len(entity.word) == 0 {
-		t.addToCache(pattern, target)
-		entity.word = target
-	}
-
+	entity.word = target
 	t.Unlock()
+
 	return nil
 }
 
@@ -158,20 +158,68 @@ func (t *trieRouter) Remove(pattern string) error {
 	return nil
 }
 
+// AllRules implements Router's AllRules
+func (t *trieRouter) AllRules() map[string]string {
+	rules := make(map[string]string)
+	var characters []byte
+	t.RLock()
+	t.travel(t.root, characters, rules)
+	t.RUnlock()
+	return rules
+}
+
+func (t *trieRouter) travel(n *node, characters []byte, rules map[string]string) {
+	if n == nil {
+		return
+	}
+
+	if n.awc != nil {
+		if len(n.awc.word) > 0 {
+			pattern := append(characters, awc)
+			rules[string(pattern)] = n.awc.word
+		}
+	}
+
+	if n.qwc != nil {
+		pattern := append(characters, qwc)
+		if len(n.qwc.word) > 0 {
+			rules[string(pattern)] = n.qwc.word
+		}
+		t.travel(n.qwc.next, pattern, rules)
+	}
+
+	for char, item := range n.wcs {
+		pattern := append(characters, char)
+		if len(item.word) > 0 {
+			rules[string(pattern)] = item.word
+		}
+		t.travel(item.next, pattern, rules)
+	}
+}
+
 func (t *trieRouter) matchNode(n *node, origin string) string {
+	if n == nil {
+		return ""
+	}
+
 	var (
 		ok     bool
 		entity *item
 	)
 	for i := range origin {
-		if n.awc != nil {
+		if n.awc != nil && len(n.awc.word) > 0 {
 			return n.awc.word
 		}
 
 		if n.qwc != nil {
-			entity = n.qwc
-			n = n.qwc.next
-			continue
+			if i == len(origin)-1 && len(n.qwc.word) > 0 {
+				return n.qwc.word
+			}
+
+			target := t.matchNode(n.qwc.next, origin[i+1:])
+			if len(target) > 0 {
+				return target
+			}
 		}
 
 		entity, ok = n.wcs[origin[i]]
@@ -181,47 +229,13 @@ func (t *trieRouter) matchNode(n *node, origin string) string {
 		n = entity.next
 	}
 
-	return entity.word
-}
-
-// assume wlock is held
-func (t *trieRouter) addToCache(pattern, target string) {
-	for origin := range t.cache {
-		if matchOrigin(origin, pattern) {
-			t.cache[origin] = target
-		}
-	}
-}
-
-// assume wlock is held
-func (t *trieRouter) removeFromCache(pattern string) {
-	for origin := range t.cache {
-		if !matchOrigin(origin, pattern) {
-			continue
-		}
-		delete(t.cache, origin)
-	}
-}
-
-func matchOrigin(origin, pattern string) bool {
-	index := 0
-	length := len(origin)
-	for i := 0; i < len(pattern); i++ {
-		if index >= length {
-			return false
-		}
-		b := pattern[i]
-		switch b {
-		case awc:
-			return true
-		case qwc:
-		default:
-			if b != origin[index] {
-				return false
-			}
-		}
-		index++
+	if entity != nil && len(entity.word) > 0 {
+		return entity.word
 	}
 
-	return index == length
+	if n.awc != nil && len(n.awc.word) > 0 {
+		return n.awc.word
+	}
+
+	return ""
 }
