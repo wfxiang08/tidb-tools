@@ -26,9 +26,9 @@ import (
 // 2. the question mark ? matches exactly one character
 const (
 	// asterisk [ * ]
-	awc = '*'
+	asterisk = '*'
 	// question mark [ ? ]
-	qwc = '?'
+	question = '?'
 )
 
 const maxCacheNum = 1024
@@ -50,25 +50,27 @@ type trieRouter struct {
 
 	cache map[string]string
 	root  *node
+
+	isEmpty bool
 }
 
 type node struct {
-	wcs      map[byte]*item
-	awc, qwc *item
+	characters         map[byte]*item
+	asterisk, question *item
 }
 
 type item struct {
-	next *node
-	word string
+	next    *node
+	literal string
 }
 
 func newNode() *node {
-	return &node{wcs: make(map[byte]*item)}
+	return &node{characters: make(map[byte]*item)}
 }
 
 // NewTrieRouter returns a trie Router
 func NewTrieRouter() Router {
-	return &trieRouter{cache: make(map[string]string), root: newNode()}
+	return &trieRouter{cache: make(map[string]string), root: newNode(), isEmpty: true}
 }
 
 // Insert implements Router's Insert()
@@ -76,36 +78,39 @@ func (t *trieRouter) Insert(pattern, target string) error {
 	if len(pattern) == 0 || len(target) == 0 {
 		return errors.Errorf("pattern %s and target %s can't be empty", pattern, target)
 	}
+	if pattern[0] == asterisk {
+		return errors.Errorf("invalid pattern %s", pattern)
+	}
 
 	t.Lock()
 
 	n := t.root
-	hadAwc := false
+	hadAsterisk := false
 	var entity *item
 	for i := range pattern {
-		if hadAwc {
+		if hadAsterisk {
 			t.Unlock()
 			return errors.Errorf("pattern %s is invaild", pattern)
 		}
 
 		switch pattern[i] {
-		case awc:
-			entity = n.awc
-			hadAwc = true
-		case qwc:
-			entity = n.qwc
+		case asterisk:
+			entity = n.asterisk
+			hadAsterisk = true
+		case question:
+			entity = n.question
 		default:
-			entity = n.wcs[pattern[i]]
+			entity = n.characters[pattern[i]]
 		}
 		if entity == nil {
 			entity = &item{}
 			switch pattern[i] {
-			case awc:
-				n.awc = entity
-			case qwc:
-				n.qwc = entity
+			case asterisk:
+				n.asterisk = entity
+			case question:
+				n.question = entity
 			default:
-				n.wcs[pattern[i]] = entity
+				n.characters[pattern[i]] = entity
 			}
 		}
 		if entity.next == nil {
@@ -114,38 +119,44 @@ func (t *trieRouter) Insert(pattern, target string) error {
 		n = entity.next
 	}
 
-	if len(entity.word) > 0 && entity.word != target {
+	if len(entity.literal) > 0 && entity.literal != target {
 		t.Unlock()
-		return errors.Errorf("subjects has conflict: had %s, want to insert %s", entity.word, target)
+		return errors.Errorf("subjects has conflict: had %s, want to insert %s", entity.literal, target)
 	}
 
-	entity.word = target
+	t.isEmpty = false
+	entity.literal = target
 	t.Unlock()
 
 	return nil
 }
 
 // Match implements Router's Match()
-func (t *trieRouter) Match(origin string) string {
-	if len(origin) == 0 {
+func (t *trieRouter) Match(s string) string {
+	if len(s) == 0 {
 		return ""
 	}
 
 	t.RLock()
-	target, ok := t.cache[origin]
+	if t.isEmpty {
+		t.RUnlock()
+		return ""
+	}
+
+	target, ok := t.cache[s]
 	t.RUnlock()
 	if ok {
 		return target
 	}
 
 	t.Lock()
-	target = t.matchNode(t.root, origin)
+	target = t.matchNode(t.root, s)
 
 	// Add to our cache
-	t.cache[origin] = target
+	t.cache[s] = target
 	if len(t.cache) > maxCacheNum {
-		for origin := range t.cache {
-			delete(t.cache, origin)
+		for literal := range t.cache {
+			delete(t.cache, literal)
 			break
 		}
 	}
@@ -173,31 +184,31 @@ func (t *trieRouter) travel(n *node, characters []byte, rules map[string]string)
 		return
 	}
 
-	if n.awc != nil {
-		if len(n.awc.word) > 0 {
-			pattern := append(characters, awc)
-			rules[string(pattern)] = n.awc.word
+	if n.asterisk != nil {
+		if len(n.asterisk.literal) > 0 {
+			pattern := append(characters, asterisk)
+			rules[string(pattern)] = n.asterisk.literal
 		}
 	}
 
-	if n.qwc != nil {
-		pattern := append(characters, qwc)
-		if len(n.qwc.word) > 0 {
-			rules[string(pattern)] = n.qwc.word
+	if n.question != nil {
+		pattern := append(characters, question)
+		if len(n.question.literal) > 0 {
+			rules[string(pattern)] = n.question.literal
 		}
-		t.travel(n.qwc.next, pattern, rules)
+		t.travel(n.question.next, pattern, rules)
 	}
 
-	for char, item := range n.wcs {
+	for char, item := range n.characters {
 		pattern := append(characters, char)
-		if len(item.word) > 0 {
-			rules[string(pattern)] = item.word
+		if len(item.literal) > 0 {
+			rules[string(pattern)] = item.literal
 		}
 		t.travel(item.next, pattern, rules)
 	}
 }
 
-func (t *trieRouter) matchNode(n *node, origin string) string {
+func (t *trieRouter) matchNode(n *node, s string) string {
 	if n == nil {
 		return ""
 	}
@@ -206,35 +217,35 @@ func (t *trieRouter) matchNode(n *node, origin string) string {
 		ok     bool
 		entity *item
 	)
-	for i := range origin {
-		if n.awc != nil && len(n.awc.word) > 0 {
-			return n.awc.word
+	for i := range s {
+		if n.asterisk != nil && len(n.asterisk.literal) > 0 {
+			return n.asterisk.literal
 		}
 
-		if n.qwc != nil {
-			if i == len(origin)-1 && len(n.qwc.word) > 0 {
-				return n.qwc.word
+		if n.question != nil {
+			if i == len(s)-1 && len(n.question.literal) > 0 {
+				return n.question.literal
 			}
 
-			target := t.matchNode(n.qwc.next, origin[i+1:])
+			target := t.matchNode(n.question.next, s[i+1:])
 			if len(target) > 0 {
 				return target
 			}
 		}
 
-		entity, ok = n.wcs[origin[i]]
+		entity, ok = n.characters[s[i]]
 		if !ok {
 			return ""
 		}
 		n = entity.next
 	}
 
-	if entity != nil && len(entity.word) > 0 {
-		return entity.word
+	if entity != nil && len(entity.literal) > 0 {
+		return entity.literal
 	}
 
-	if n.awc != nil && len(n.awc.word) > 0 {
-		return n.awc.word
+	if n.asterisk != nil && len(n.asterisk.literal) > 0 {
+		return n.asterisk.literal
 	}
 
 	return ""
