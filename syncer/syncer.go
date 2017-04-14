@@ -23,6 +23,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/pingcap/tidb-tools/pkg/tableroute"
 	"github.com/satori/go.uuid"
 	"github.com/siddontang/go-mysql/mysql"
 	"github.com/siddontang/go-mysql/replication"
@@ -60,6 +61,9 @@ type Syncer struct {
 
 	done chan struct{}
 	jobs []chan *job
+
+	schemaRouter route.Router
+	tableRouter  route.Router
 
 	closed sync2.AtomicBool
 
@@ -514,6 +518,7 @@ func (s *Syncer) run() error {
 
 	// support regex
 	s.genRegexMap()
+	s.genRouter()
 
 	streamer, isGTIDMode, err := s.getBinlogStreamer()
 	if err != nil {
@@ -579,23 +584,25 @@ func (s *Syncer) run() error {
 			log.Infof("rotate binlog to %v", pos)
 		case *replication.RowsEvent:
 			// binlogEventsTotal.WithLabelValues("type", "rows").Add(1)
-
+			//
+			schemaName := s.fetchMathcedLiteral(s.schemaRouter, string(ev.Table.Schema))
+			tableName := s.fetchMathcedLiteral(s.tableRouter, string(ev.Table.Table))
 			table := &table{}
-			if s.skipRowEvent(string(ev.Table.Schema), string(ev.Table.Table)) {
+			if s.skipRowEvent(schemaName, tableName) {
 				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
 				if err = s.recordSkipSQLsPos(insert, pos); err != nil {
 					return errors.Trace(err)
 				}
 
-				log.Warnf("[skip RowsEvent]db:%s table:%s", ev.Table.Schema, ev.Table.Table)
+				log.Warnf("[skip RowsEvent]source-db:%s table:%s; target-db:%s table:%s", ev.Table.Schema, ev.Table.Table, schemaName, tableName)
 				continue
 			}
-			table, err = s.getTable(string(ev.Table.Schema), string(ev.Table.Table))
+			table, err = s.getTable(schemaName, tableName)
 			if err != nil {
 				return errors.Trace(err)
 			}
 
-			log.Debugf("schema: %s, table %s, RowsEvent data: %v", table.schema, table.name, ev.Rows)
+			log.Debugf("source-db:%s table:%s; target-db:%s table:%s, RowsEvent data: %v", ev.Table.Schema, ev.Table.Table, table.schema, table.name, ev.Rows)
 			var (
 				sqls []string
 				keys []string
@@ -653,14 +660,15 @@ func (s *Syncer) run() error {
 
 			ok := false
 			sql := string(ev.Query)
+			schemaName := s.fetchMathcedLiteral(s.schemaRouter, string(ev.Schema))
 
-			log.Debugf("[query]%s", sql)
+			log.Debugf("[query event] sql:%s source-db:%s target-db:%s", sql, ev.Schema, schemaName)
 
 			lastPos := pos
 			pos.Pos = e.Header.LogPos
 			sqls, ok, err := resolveDDLSQL(sql)
 			if err != nil {
-				if s.skipQueryEvent(sql, string(ev.Schema)) {
+				if s.skipQueryEvent(sql, schemaName) {
 					binlogSkippedEventsTotal.WithLabelValues("query").Inc()
 					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
 					continue
@@ -672,23 +680,28 @@ func (s *Syncer) run() error {
 				continue
 			}
 
+			tableNames, err := s.fetchDDLTableName(sql, string(ev.Schema), schemaName)
+			if err != nil {
+				return errors.Trace(err)
+			}
+
 			for _, sql := range sqls {
-				if s.skipQueryDDL(sql, string(ev.Schema)) {
+				if s.skipQueryDDL(sql, tableNames[1]) {
 					binlogSkippedEventsTotal.WithLabelValues("query_ddl").Inc()
 					if err = s.recordSkipSQLsPos(ddl, pos); err != nil {
 						return errors.Trace(err)
 					}
 
-					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
+					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, schemaName)
 					continue
 				}
 
-				sql, err = genDDLSQL(sql, string(ev.Schema))
+				sql, err = genDDLSQL(sql, tableNames[0], tableNames[1])
 				if err != nil {
 					return errors.Trace(err)
 				}
 
-				log.Infof("[ddl][start]%s[pos]%v[next pos]%v[schema]%s", sql, lastPos, pos, string(ev.Schema))
+				log.Infof("[ddl][start]%s[pos]%v[next pos]%v[schema]%s", sql, lastPos, pos, schemaName)
 
 				job := newJob(ddl, sql, nil, "", false, pos)
 				err = s.addJob(job)
@@ -716,6 +729,22 @@ func (s *Syncer) run() error {
 			id = u.String()
 			gtid = fmt.Sprintf("%s:1-%d", u.String(), ev.GNO)
 			log.Debugf("gtid infomation: binlog %v, gtid %s", pos, gtid)
+		}
+	}
+}
+
+func (s *Syncer) genRouter() {
+	s.schemaRouter = route.NewTrieRouter()
+	s.tableRouter = route.NewTrieRouter()
+
+	for _, rule := range s.cfg.RouteRules {
+		switch rule.Kind {
+		case "schema":
+			s.schemaRouter.Insert(rule.Pattern, rule.Target)
+		case "table":
+			s.tableRouter.Insert(rule.Pattern, rule.Target)
+		default:
+			log.Errorf("invalid route rule %+v", rule)
 		}
 	}
 }
@@ -840,6 +869,33 @@ func (s *Syncer) recordSkipSQLsPos(op opType, pos mysql.Position) error {
 func (s *Syncer) startSyncByPosition() (*replication.BinlogStreamer, bool, error) {
 	streamer, err := s.syncer.StartSync(s.meta.Pos())
 	return streamer, false, errors.Trace(err)
+}
+
+func (s *Syncer) fetchDDLTableName(sql string, sourceSchema string, targetSchema string) ([]*TableName, error) {
+	originTableName, err := parserDDLTableName(sql)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	originTableName.Schema = sourceSchema
+	targetTableName := &TableName{
+		Schema: targetSchema,
+		Name:   s.fetchMathcedLiteral(s.tableRouter, originTableName.Name),
+	}
+
+	return []*TableName{originTableName, targetTableName}, nil
+}
+
+func (s *Syncer) fetchMathcedLiteral(router route.Router, literal string) string {
+	if literal == "" {
+		return literal
+	}
+	res := router.Match(literal)
+	if res == "" {
+		return literal
+	}
+
+	return res
 }
 
 func (s *Syncer) isClosed() bool {

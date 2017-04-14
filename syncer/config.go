@@ -58,6 +58,14 @@ type TableName struct {
 	Name   string `toml:"tbl-name" json:"tbl-name"`
 }
 
+// RouteRule is route rule that syncing
+// schema and table to specified schem and table
+type RouteRule struct {
+	Kind    string `toml:"kind" json:"kind"`
+	Pattern string `toml:"pattern" json:"pattern"`
+	Target  string `toml:"target" json:"target"`
+}
+
 func (c DBConfig) String() string {
 	return fmt.Sprintf("DBConfig(host:%s, user:%s, port:%d, pass:<omitted>)", c.Host, c.User, c.Port)
 }
@@ -79,14 +87,16 @@ type Config struct {
 	Batch       int `toml:"batch" json:"batch"`
 
 	// Ref: http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-do-table
-	DoTables []TableName `toml:"replicate-do-table" json:"replicate-do-table"`
-	DoDBs    []string    `toml:"replicate-do-db" json:"replicate-do-db"`
+	DoTables []*TableName `toml:"replicate-do-table" json:"replicate-do-table"`
+	DoDBs    []string     `toml:"replicate-do-db" json:"replicate-do-db"`
 
 	// Ref: http://dev.mysql.com/doc/refman/5.7/en/replication-options-slave.html#option_mysqld_replicate-ignore-db
-	IgnoreTables []TableName `toml:"replicate-ignore-table" json:"replicate-ignore-table"`
-	IgnoreDBs    []string    `toml:"replicate-ignore-db" json:"replicate-ignore-db"`
+	IgnoreTables []*TableName `toml:"replicate-ignore-table" json:"replicate-ignore-table"`
+	IgnoreDBs    []string     `toml:"replicate-ignore-db" json:"replicate-ignore-db"`
 
 	SkipSQLs []string `toml:"skip-sqls" json:"skip-sqls"`
+
+	RouteRules []*RouteRule `toml:"route-rules" json:"route-rules"`
 
 	From DBConfig `toml:"from" json:"from"`
 	To   DBConfig `toml:"to" json:"to"`
@@ -151,14 +161,31 @@ func (c *Config) adjust() {
 }
 
 func (c Config) String() string {
+	doTables := make([]string, len(c.DoTables))
+	ignoreTables := make([]string, len(c.IgnoreTables))
+	routeRules := make([]string, len(c.RouteRules))
+	for i, table := range c.DoTables {
+		doTables[i] = fmt.Sprintf("%+v", *table)
+	}
+	for i, table := range c.IgnoreTables {
+		ignoreTables[i] = fmt.Sprintf("%+v", *table)
+	}
+	for i, rule := range c.RouteRules {
+		routeRules[i] = fmt.Sprintf("%+v", *rule)
+	}
+
+	doTablesStr := fmt.Sprintf("[%s]", strings.Join(doTables, ";"))
+	ingnoreTablesStr := fmt.Sprintf("[%s]", strings.Join(ignoreTables, ";"))
+	routeRulesStr := fmt.Sprintf("[%s]", strings.Join(routeRules, ";"))
+
 	return fmt.Sprintf(`log-level:%s log-file:%s log-rotate:%s status-addr:%s `+
 		`server-id:%d worker-count:%d batch:%d meta-file:%s `+
 		`do-tables:%v do-dbs:%v ignore-tables:%v ignore-dbs:%v `+
-		`from:%s to:%s`,
+		`skip-sqls: %v route-rules %v from:%s to:%s`,
 		c.LogLevel, c.LogFile, c.LogRotate, c.StatusAddr,
 		c.ServerID, c.WorkerCount, c.Batch, c.Meta,
-		c.DoTables, c.DoDBs, c.IgnoreTables, c.IgnoreDBs,
-		c.From, c.To)
+		doTablesStr, c.DoDBs, ingnoreTablesStr, c.IgnoreDBs,
+		c.SkipSQLs, routeRulesStr, c.From, c.To)
 }
 
 // configFromFile loads config from file.

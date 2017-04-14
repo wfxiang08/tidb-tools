@@ -25,6 +25,20 @@ pprof-addr = ":10081"
 # skip prefix mathched sqls
 # skip-sqls = ["^ALTER\\s+USER", "^CREATE\\s+USER"]
 
+[[route-rules]]
+kind = "table"
+pattern = "abc_*"
+target = "abc"
+
+[[route-rules]]
+kind = "table"
+pattern = "xyz_*"
+target = "xyz"
+
+[[route-rules]]
+kind = "schema"
+pattern = "abc_*"
+target = "abc"
 
 [from]
 host = "127.0.0.1"
