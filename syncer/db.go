@@ -397,6 +397,18 @@ func ignoreDDLError(err error) bool {
 	}
 }
 
+func isBinlogPurgedError(err error) bool {
+	mysqlErr, ok := errors.Cause(err).(*mysql.MySQLError)
+	if !ok {
+		return false
+	}
+	errCode := terror.ErrCode(mysqlErr.Number)
+	if errCode == tmysql.ErrMasterFatalErrorReadingBinlog {
+		return true
+	}
+	return false
+}
+
 func isDDLSQL(sql string) (bool, error) {
 	stmt, err := parser.New().ParseOneStmt(sql, "", "")
 	if err != nil {

@@ -166,6 +166,71 @@ func (s *Syncer) checkBinlogFormat() error {
 	return nil
 }
 
+// todo: use "github.com/siddontang/go-mysql/mysql".MysqlGTIDSet to represent gtid
+func (s *Syncer) retrySyncGTIDs() error {
+	rows, err := s.fromDB.Query(`SHOW MASTER STATUS`)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	defer rows.Close()
+
+	// Show an example.
+	/*
+				MySQL [test]> SHOW MASTER STATUS;
+		        +-----------+----------+--------------+------------------+--------------------------------------------+
+		        | File      | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set                          |
+		        +-----------+----------+--------------+------------------+--------------------------------------------+
+		        | ON.000001 |     4822 |              |                  | 85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46
+		        +-----------+----------+--------------+------------------+--------------------------------------------+
+	*/
+	for rows.Next() {
+		var (
+			binlogFile string
+			binlogPos  uint32
+			gtidSet    string
+		)
+
+		err = rows.Scan(&binlogFile, &binlogPos, nil, nil, &gtidSet)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		oldGTIDs := s.meta.GTID()
+		newGTIDs := make(map[string]string)
+		gtids := strings.Split(gtidSet, ",")
+		for _, gtid := range gtids {
+			sep := strings.Split(gtid, ":")
+			if len(sep) < 2 {
+				return errors.Errorf("invalid GTID format, must UUID:interval[:interval]")
+			}
+			newGTIDs[sep[0]] = gtid
+		}
+
+		// remove useless gtid
+		for uuid := range oldGTIDs {
+			if _, ok := newGTIDs[uuid]; !ok {
+				delete(oldGTIDs, uuid)
+			}
+		}
+		// add unknow gtid
+		hasUnknowGTID := false
+		for uuid, gtid := range newGTIDs {
+			if _, ok := oldGTIDs[uuid]; !ok {
+				hasUnknowGTID = true
+				oldGTIDs[uuid] = gtid
+			}
+		}
+		if hasUnknowGTID {
+			return errors.New("master doesn't contain unknow gtid")
+		}
+	}
+	if rows.Err() != nil {
+		return errors.Trace(rows.Err())
+	}
+
+	return nil
+}
+
 func (s *Syncer) clearTables() {
 	s.tables = make(map[string]*table)
 }
@@ -551,6 +616,21 @@ func (s *Syncer) run() error {
 		}
 
 		if err != nil {
+			log.Errorf("get binlog error %v", err)
+			// retry fix syncing in gtid mode
+			if isGTIDMode && isBinlogPurgedError(err) {
+				time.Sleep(waitTime)
+				err1 := s.retrySyncGTIDs()
+				if err1 != nil {
+					return err1
+				}
+				streamer, isGTIDMode, err1 = s.getBinlogStreamer()
+				if err1 != nil {
+					return errors.Trace(err1)
+				}
+				continue
+			}
+
 			return errors.Trace(err)
 		}
 
