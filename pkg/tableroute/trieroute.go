@@ -1,4 +1,4 @@
-// Copyright 2016 PingCAP, Inc.
+// Copyright 2017 PingCAP, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ type Router interface {
 	AllRules() map[string]string
 }
 
+// ref https://en.wikipedia.org/wiki/Trie
 type trieRouter struct {
 	sync.RWMutex
 
@@ -79,16 +80,16 @@ func (t *trieRouter) Insert(pattern, target string) error {
 		return errors.Errorf("pattern %s and target %s can't be empty", pattern, target)
 	}
 	if pattern[0] == asterisk {
-		return errors.Errorf("invalid pattern %s", pattern)
+		return errors.Errorf("unsupported pattern %s", pattern)
 	}
 
 	t.Lock()
 
 	n := t.root
-	hadAsterisk := false
+	hasAsterisk := false
 	var entity *item
 	for i := range pattern {
-		if hadAsterisk {
+		if hasAsterisk {
 			t.Unlock()
 			return errors.Errorf("pattern %s is invaild", pattern)
 		}
@@ -96,7 +97,7 @@ func (t *trieRouter) Insert(pattern, target string) error {
 		switch pattern[i] {
 		case asterisk:
 			entity = n.asterisk
-			hadAsterisk = true
+			hasAsterisk = true
 		case question:
 			entity = n.question
 		default:
