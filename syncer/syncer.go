@@ -585,8 +585,8 @@ func (s *Syncer) run() error {
 		case *replication.RowsEvent:
 			// binlogEventsTotal.WithLabelValues("type", "rows").Add(1)
 			//
-			schemaName := s.fetchMathcedLiteral(s.schemaRouter, string(ev.Table.Schema))
-			tableName := s.fetchMathcedLiteral(s.tableRouter, string(ev.Table.Table))
+			schemaName := s.fetchMatchedLiteral(s.schemaRouter, string(ev.Table.Schema))
+			tableName := s.fetchMatchedLiteral(s.tableRouter, string(ev.Table.Table))
 			table := &table{}
 			if s.skipRowEvent(schemaName, tableName) {
 				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
@@ -658,29 +658,26 @@ func (s *Syncer) run() error {
 		case *replication.QueryEvent:
 			binlogEventsTotal.WithLabelValues("query").Inc()
 
-			ok := false
 			sql := string(ev.Query)
-			schemaName := s.fetchMathcedLiteral(s.schemaRouter, string(ev.Schema))
 
-			log.Debugf("[query event] sql:%s source-db:%s target-db:%s", sql, ev.Schema, schemaName)
+			log.Debugf("[query event] sql:%s db:%s", sql, ev.Schema)
 
 			lastPos := pos
 			pos.Pos = e.Header.LogPos
-			sqls, ok, err := resolveDDLSQL(sql)
+			sqls, isDDL, err := resolveDDLSQL(sql)
 			if err != nil {
-				if s.skipQueryEvent(sql, schemaName) {
+				if s.skipQueryEvent(sql) {
 					binlogSkippedEventsTotal.WithLabelValues("query").Inc()
-					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, string(ev.Schema))
+					log.Warnf("[skip query-sql]%s  [schema]:%s", sql, ev.Schema)
 					continue
 				}
 				return errors.Errorf("parse query event failed: %v, position %v", err, pos)
 			}
-
-			if !ok {
+			if !isDDL {
 				continue
 			}
 
-			tableNames, err := s.fetchDDLTableName(sql, string(ev.Schema), schemaName)
+			tableNames, err := s.fetchDDLTableNames(sql, string(ev.Schema))
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -692,7 +689,7 @@ func (s *Syncer) run() error {
 						return errors.Trace(err)
 					}
 
-					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, schemaName)
+					log.Warnf("[skip query-ddl-sql]%s  [schema]:%s", sql, ev.Schema)
 					continue
 				}
 
@@ -701,7 +698,7 @@ func (s *Syncer) run() error {
 					return errors.Trace(err)
 				}
 
-				log.Infof("[ddl][start]%s[pos]%v[next pos]%v[schema]%s", sql, lastPos, pos, schemaName)
+				log.Infof("[ddl][start]%s[pos]%v[next pos]%v", sql, lastPos, pos)
 
 				job := newJob(ddl, sql, nil, "", false, pos)
 				err = s.addJob(job)
@@ -871,22 +868,30 @@ func (s *Syncer) startSyncByPosition() (*replication.BinlogStreamer, bool, error
 	return streamer, false, errors.Trace(err)
 }
 
-func (s *Syncer) fetchDDLTableName(sql string, sourceSchema string, targetSchema string) ([]*TableName, error) {
-	originTableName, err := parserDDLTableName(sql)
+// the result contains [source TableNames, target TableNames]
+// the detail of TableNames refs `parserDDLTableNames()`
+func (s *Syncer) fetchDDLTableNames(sql string, schema string) ([][]*TableName, error) {
+	tableNames, err := parserDDLTableNames(sql)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	originTableName.Schema = sourceSchema
-	targetTableName := &TableName{
-		Schema: targetSchema,
-		Name:   s.fetchMathcedLiteral(s.tableRouter, originTableName.Name),
+	var targetTableNames []*TableName
+	for i := range tableNames {
+		if tableNames[i].Schema == "" {
+			tableNames[i].Schema = schema
+		}
+		tableName := &TableName{
+			Schema: s.fetchMatchedLiteral(s.schemaRouter, tableNames[i].Schema),
+			Name:   s.fetchMatchedLiteral(s.tableRouter, tableNames[i].Name),
+		}
+		targetTableNames = append(targetTableNames, tableName)
 	}
 
-	return []*TableName{originTableName, targetTableName}, nil
+	return [][]*TableName{tableNames, targetTableNames}, nil
 }
 
-func (s *Syncer) fetchMathcedLiteral(router route.Router, literal string) string {
+func (s *Syncer) fetchMatchedLiteral(router route.Router, literal string) string {
 	if literal == "" {
 		return literal
 	}

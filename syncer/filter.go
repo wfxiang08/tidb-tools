@@ -18,13 +18,18 @@ import (
 	"strings"
 )
 
+/*
+CREATE [TEMPORARY] TABLE [IF NOT EXISTS] tbl_name
+    { LIKE old_tbl_name | (LIKE old_tbl_name) }
+*/
 var (
 	defaultIgnoreDB = "mysql"
 	// https://dev.mysql.com/doc/refman/5.7/en/create-index.html
 	// https://dev.mysql.com/doc/refman/5.7/en/drop-index.html
 	indexDDLRegex = regexp.MustCompile("ON\\s+\\S*")
 	// https://dev.mysql.com/doc/refman/5.7/en/create-table.html
-	createTableRegex = regexp.MustCompile("^CREATE\\s+(TEMPORARY\\s+)?TABLE\\s+(IF NOT EXISTS\\s+)?\\S+")
+	createTableRegex     = regexp.MustCompile("^CREATE\\s+(TEMPORARY\\s+)?TABLE\\s+(IF NOT EXISTS\\s+)?\\S+")
+	createTableLikeRegex = regexp.MustCompile("^CREATE\\s+(TEMPORARY\\s+)?TABLE\\s+(IF NOT EXISTS\\s+)?\\S+(\\s+\\(?LIKE\\s+\\S+)?")
 	// https://dev.mysql.com/doc/refman/5.7/en/drop-table.html
 	dropTableRegex = regexp.MustCompile("^DROP\\s+(TEMPORARY\\s+)?TABLE\\s+(IF EXISTS\\s+)?\\S+")
 	// https://dev.mysql.com/doc/refman/5.7/en/alter-table.html
@@ -87,7 +92,7 @@ func (s *Syncer) blackFilter(stbs []*TableName) []*TableName {
 	return tbs
 }
 
-func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
+func (s *Syncer) skipQueryEvent(sql string) bool {
 	if skipPatterns.FindStringIndex(sql) != nil {
 		return true
 	}
@@ -99,9 +104,6 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 	}
 
 	if triggerRegex.FindStringIndex(sql) != nil {
-		return true
-	}
-	if schema == defaultIgnoreDB {
 		return true
 	}
 
@@ -128,11 +130,12 @@ func (s *Syncer) skipRowEvent(schema string, table string) bool {
 }
 
 // skipQueryDDL first whitelist filtering and then blacklist filtering
-func (s *Syncer) skipQueryDDL(sql string, tb *TableName) bool {
-	if tb.Schema == defaultIgnoreDB {
-		return true
+func (s *Syncer) skipQueryDDL(sql string, tbs []*TableName) bool {
+	for i := range tbs {
+		if tbs[i].Schema == defaultIgnoreDB {
+			return true
+		}
 	}
-	tbs := []*TableName{tb}
 	tbs = s.whiteFilter(tbs)
 	tbs = s.blackFilter(tbs)
 	if len(tbs) == 0 {
