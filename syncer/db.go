@@ -470,9 +470,11 @@ func genDDLSQL(sql string, originTableNames []*TableName, targetTableNames []*Ta
 		return strings.Replace(sql, originTableNames[0].Schema, targetTableNames[0].Schema, 1), nil
 	case *ast.CreateTableStmt:
 		// todo: fix the ugly code
-		sqlPreifx := createTableLikeRegex.FindString(sql)
-		index := findLastWord(sqlPreifx)
-		sql = createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`", sqlPreifx[:index], targetTableNames[1].Schema, targetTableNames[1].Name))
+		if len(originTableNames) == 2 {
+			sqlPreifx := createTableLikeRegex.FindString(sql)
+			index := findLastWord(sqlPreifx)
+			sql = createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`", sqlPreifx[:index], targetTableNames[1].Schema, targetTableNames[1].Name))
+		}
 		sqlPreifx = createTableRegex.FindString(sql)
 		index = findLastWord(sqlPreifx)
 		return createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`", sqlPreifx[:index], targetTableNames[0].Schema, targetTableNames[0].Name)), nil
@@ -518,7 +520,9 @@ func parserDDLTableNames(sql string) ([]*TableName, error) {
 		res = append(res, genTableName(v.Name, ""))
 	case *ast.CreateTableStmt:
 		res = append(res, genTableName(v.Table.Schema.L, v.Table.Name.L))
-		res = append(res, genTableName(v.ReferTable.Schema.L, v.ReferTable.Name.L))
+		if v.ReferTable != nil {
+			res = append(res, genTableName(v.ReferTable.Schema.L, v.ReferTable.Name.L))
+		}
 	case *ast.DropTableStmt:
 		if len(v.Tables) != 1 {
 			return res, errors.Errorf("drop table with multiple tables, may resovle ddl sql failed")
