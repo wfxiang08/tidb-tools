@@ -92,6 +92,16 @@ type Config struct {
 
 	configFile          string
 	SkipConstraintCheck int `toml:"skip-unique-check" json:"skip-unique-check"`
+
+	RouteRules []*RouteRule `toml:"route-rules" json:"route-rules"`
+}
+
+// RouteRule is the route rule for loading schema and table into specified schema and table.
+type RouteRule struct {
+	SchemaPattern string `toml:"schema-pattern" json:"schema-pattern"`
+	TablePattern  string `toml:"table-pattern" json:"table-pattern"`
+	TargetSchema  string `toml:"target-schema" json:"target-schema"`
+	TargetTable   string `toml:"target-table" json:"target-table"`
 }
 
 // Parse parses flag definitions from the argument list.

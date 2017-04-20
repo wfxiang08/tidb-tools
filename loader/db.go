@@ -21,6 +21,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
+	"github.com/pingcap/tidb-tools/pkg/tableroute"
 	tmysql "github.com/pingcap/tidb/mysql"
 )
 
@@ -105,7 +106,7 @@ func executeSQLImp(db *sql.DB, sqls []string, skipConstraintCheck bool) error {
 	}
 
 	for i := range sqls {
-		log.Debugf("[exec][sql]%-.100v", sqls)
+		log.Debugf("[exec][sql]%-.200v", sqls)
 
 		_, err = txn.Exec(sqls[i])
 		if err != nil {
@@ -127,12 +128,14 @@ func executeSQLImp(db *sql.DB, sqls []string, skipConstraintCheck bool) error {
 	return nil
 }
 
-func hasUniqIndex(conn *Conn, schema string, table string) (bool, error) {
+func hasUniqIndex(conn *Conn, schema string, table string, tableRouter route.TableRouter) (bool, error) {
 	if schema == "" || table == "" {
 		return false, errors.New("schema/table is empty")
 	}
 
-	query := fmt.Sprintf("show index from %s.%s", schema, table)
+	targetSchema, targetTable := fetchMatchedLiteral(tableRouter, schema, table)
+
+	query := fmt.Sprintf("show index from %s.%s", targetSchema, targetTable)
 	rows, err := querySQL(conn.db, query)
 	if err != nil {
 		return false, errors.Trace(err)

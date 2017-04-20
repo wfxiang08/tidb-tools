@@ -14,6 +14,7 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,4 +74,18 @@ func CollectDirFiles(path string) map[string]struct{} {
 	})
 
 	return files
+}
+
+func SQLReplace(s, old, new string) string {
+	old = backquote(old)
+	new = backquote(new)
+	return strings.Replace(s, old, new, 1)
+}
+
+func backquote(s string) string {
+	buf := bytes.Buffer{}
+	buf.WriteByte('`')
+	buf.WriteString(s)
+	buf.WriteByte('`')
+	return buf.String()
 }
