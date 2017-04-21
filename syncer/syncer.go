@@ -167,68 +167,90 @@ func (s *Syncer) checkBinlogFormat() error {
 }
 
 // todo: use "github.com/siddontang/go-mysql/mysql".MysqlGTIDSet to represent gtid
-func (s *Syncer) retrySyncGTIDs() error {
+// assume that reset master before switching to new master, and only the new master would write
+func (s *Syncer) retrySyncGTIDs() (map[string]string, error) {
+	log.Info("start retry sync gtid")
+
+	gtids := s.meta.GTID()
+	log.Infof("old gtids %v", gtids)
+	// find master UUID and ignore it
+	var masterUUID string
+	newGtids, err := s.getMasterGTID()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	var currentGTIDs map[string]string
+	for {
+		currentGTIDs, err = s.getMasterGTID()
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+		for uuid, gtid := range currentGTIDs {
+			if currentGTID, ok := newGtids[uuid]; ok && gtid == currentGTID {
+				continue
+			}
+			if len(masterUUID) > 0 {
+				return nil, errors.Errorf("can't retry sync slave")
+			}
+			masterUUID = uuid
+		}
+	}
+	log.Infof("new master gtids %v, master uuid %s", currentGTIDs, masterUUID)
+	// remove master gtid from currentGTIDs
+	delete(currentGTIDs, masterUUID)
+	// remove useless gtid from
+	for uuid := range gtids {
+		if _, ok := currentGTIDs[uuid]; !ok {
+			delete(gtids, uuid)
+		}
+	}
+	// add unknow gtid
+	for uuid, gtid := range currentGTIDs {
+		if _, ok := gtids[uuid]; !ok {
+			gtids[uuid] = gtid
+		}
+	}
+
+	return gtids, nil
+}
+
+func (s *Syncer) getMasterGTID() (map[string]string, error) {
+	newGTIDs := make(map[string]string)
 	rows, err := s.fromDB.Query(`SHOW MASTER STATUS`)
 	if err != nil {
-		return errors.Trace(err)
+		return nil, errors.Trace(err)
 	}
 	defer rows.Close()
 
 	// Show an example.
 	/*
-				MySQL [test]> SHOW MASTER STATUS;
-		        +-----------+----------+--------------+------------------+--------------------------------------------+
-		        | File      | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set                          |
-		        +-----------+----------+--------------+------------------+--------------------------------------------+
-		        | ON.000001 |     4822 |              |                  | 85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46
-		        +-----------+----------+--------------+------------------+--------------------------------------------+
+		MySQL [test]> SHOW MASTER STATUS;
+		+-----------+----------+--------------+------------------+--------------------------------------------+
+		| File      | Position | Binlog_Do_DB | Binlog_Ignore_DB | Executed_Gtid_Set                          |
+		+-----------+----------+--------------+------------------+--------------------------------------------+
+		| ON.000001 |     4822 |              |                  | 85ab69d1-b21f-11e6-9c5e-64006a8978d2:1-46
+		+-----------+----------+--------------+------------------+--------------------------------------------+
 	*/
 	for rows.Next() {
-		var (
-			binlogFile string
-			binlogPos  uint32
-			gtidSet    string
-		)
-
-		err = rows.Scan(&binlogFile, &binlogPos, nil, nil, &gtidSet)
+		var gtidSet string
+		err = rows.Scan(nil, nil, nil, nil, &gtidSet)
 		if err != nil {
-			return errors.Trace(err)
+			return nil, errors.Trace(err)
 		}
 
-		oldGTIDs := s.meta.GTID()
-		newGTIDs := make(map[string]string)
 		gtids := strings.Split(gtidSet, ",")
 		for _, gtid := range gtids {
 			sep := strings.Split(gtid, ":")
 			if len(sep) < 2 {
-				return errors.Errorf("invalid GTID format, must UUID:interval[:interval]")
+				return nil, errors.Errorf("invalid GTID format, must UUID:interval[:interval]")
 			}
 			newGTIDs[sep[0]] = gtid
 		}
-
-		// remove useless gtid
-		for uuid := range oldGTIDs {
-			if _, ok := newGTIDs[uuid]; !ok {
-				delete(oldGTIDs, uuid)
-			}
-		}
-		// add unknow gtid
-		hasUnknowGTID := false
-		for uuid, gtid := range newGTIDs {
-			if _, ok := oldGTIDs[uuid]; !ok {
-				hasUnknowGTID = true
-				oldGTIDs[uuid] = gtid
-			}
-		}
-		if hasUnknowGTID {
-			return errors.New("master doesn't contain unknow gtid")
-		}
 	}
 	if rows.Err() != nil {
-		return errors.Trace(rows.Err())
+		return nil, errors.Trace(rows.Err())
 	}
-
-	return nil
+	return newGTIDs, nil
 }
 
 func (s *Syncer) clearTables() {
@@ -580,7 +602,7 @@ func (s *Syncer) run() error {
 	// support regex
 	s.genRegexMap()
 
-	streamer, isGTIDMode, err := s.getBinlogStreamer()
+	streamer, isGTIDMode, err := s.getBinlogStreamer(s.meta.GTID())
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -620,11 +642,11 @@ func (s *Syncer) run() error {
 			// retry fix syncing in gtid mode
 			if isGTIDMode && isBinlogPurgedError(err) {
 				time.Sleep(waitTime)
-				err1 := s.retrySyncGTIDs()
+				gtids, err1 := s.retrySyncGTIDs()
 				if err1 != nil {
 					return err1
 				}
-				streamer, isGTIDMode, err1 = s.getBinlogStreamer()
+				streamer, isGTIDMode, err1 = s.getBinlogStreamer(gtids)
 				if err1 != nil {
 					return errors.Trace(err1)
 				}
@@ -878,9 +900,7 @@ func (s *Syncer) printStatus() {
 	}
 }
 
-func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, bool, error) {
-	gtidMap := s.meta.GTID()
-
+func (s *Syncer) getBinlogStreamer(gtidMap map[string]string) (*replication.BinlogStreamer, bool, error) {
 	if s.cfg.EnableGTID && len(gtidMap) != 0 {
 		var gtids []string
 		for _, val := range gtidMap {

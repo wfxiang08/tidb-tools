@@ -31,8 +31,8 @@ check:
 
 	$(GO) tool vet . 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
 	$(GO) tool vet --shadow . 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
-	golint ./... 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
-	gofmt -s -l . 2>&1 | grep -vE 'vendor' | awk '{print} END{if(NR>0) {exit 1}}'
+	golint ./... 2>&1 | grep -vE 'vendor|loader' | awk '{print} END{if(NR>0) {exit 1}}'
+	gofmt -s -l . 2>&1 | grep -vE 'vendor|loader' | awk '{print} END{if(NR>0) {exit 1}}'
 
 update:
 	which glide >/dev/null || curl https://glide.sh/get | sh
