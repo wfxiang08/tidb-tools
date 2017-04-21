@@ -398,12 +398,12 @@ func ignoreDDLError(err error) bool {
 }
 
 func isBinlogPurgedError(err error) bool {
-	mysqlErr, ok := errors.Cause(err).(*mysql.MySQLError)
+	mysqlErr, ok := errors.Cause(err).(*gmysql.MyError)
 	if !ok {
 		return false
 	}
-	errCode := terror.ErrCode(mysqlErr.Number)
-	if errCode == tmysql.ErrMasterFatalErrorReadingBinlog {
+	errCode := terror.ErrCode(mysqlErr.Code)
+	if errCode == gmysql.ER_MASTER_FATAL_ERROR_READING_BINLOG {
 		return true
 	}
 	return false

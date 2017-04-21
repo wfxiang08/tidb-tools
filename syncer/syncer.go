@@ -168,7 +168,7 @@ func (s *Syncer) checkBinlogFormat() error {
 
 // todo: use "github.com/siddontang/go-mysql/mysql".MysqlGTIDSet to represent gtid
 // assume that reset master before switching to new master, and only the new master would write
-func (s *Syncer) retrySyncGTIDs() (map[string]string, error) {
+func (s *Syncer) retrySyncGTIDs() error {
 	log.Info("start retry sync gtid")
 
 	gtids := s.meta.GTID()
@@ -177,23 +177,28 @@ func (s *Syncer) retrySyncGTIDs() (map[string]string, error) {
 	var masterUUID string
 	newGtids, err := s.getMasterGTID()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return errors.Trace(err)
 	}
 	var currentGTIDs map[string]string
 	for {
 		currentGTIDs, err = s.getMasterGTID()
 		if err != nil {
-			return nil, errors.Trace(err)
+			return errors.Trace(err)
 		}
 		for uuid, gtid := range currentGTIDs {
 			if currentGTID, ok := newGtids[uuid]; ok && gtid == currentGTID {
 				continue
 			}
 			if len(masterUUID) > 0 {
-				return nil, errors.Errorf("can't retry sync slave")
+				return errors.Errorf("can't retry sync slave")
 			}
 			masterUUID = uuid
 		}
+		if len(masterUUID) > 0 {
+			break
+		}
+		log.Infof("still retry to get gtids")
+		time.Sleep(retryTimeout)
 	}
 	log.Infof("new master gtids %v, master uuid %s", currentGTIDs, masterUUID)
 	// remove master gtid from currentGTIDs
@@ -210,8 +215,15 @@ func (s *Syncer) retrySyncGTIDs() (map[string]string, error) {
 			gtids[uuid] = gtid
 		}
 	}
+	// save savepoint
+	pos := s.meta.Pos()
+	for uuid, gtid := range gtids {
+		s.meta.Save(pos, uuid, gtid, false)
+	}
+	// force to save in meta file
+	s.meta.Save(pos, "", "", true)
 
-	return gtids, nil
+	return nil
 }
 
 func (s *Syncer) getMasterGTID() (map[string]string, error) {
@@ -233,7 +245,8 @@ func (s *Syncer) getMasterGTID() (map[string]string, error) {
 	*/
 	for rows.Next() {
 		var gtidSet string
-		err = rows.Scan(nil, nil, nil, nil, &gtidSet)
+		var nullPtr interface{}
+		err = rows.Scan(&nullPtr, &nullPtr, &nullPtr, &nullPtr, &gtidSet)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}
@@ -602,7 +615,7 @@ func (s *Syncer) run() error {
 	// support regex
 	s.genRegexMap()
 
-	streamer, isGTIDMode, err := s.getBinlogStreamer(s.meta.GTID())
+	streamer, isGTIDMode, err := s.getBinlogStreamer()
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -642,11 +655,14 @@ func (s *Syncer) run() error {
 			// retry fix syncing in gtid mode
 			if isGTIDMode && isBinlogPurgedError(err) {
 				time.Sleep(waitTime)
-				gtids, err1 := s.retrySyncGTIDs()
+				err1 := s.retrySyncGTIDs()
 				if err1 != nil {
 					return err1
 				}
-				streamer, isGTIDMode, err1 = s.getBinlogStreamer(gtids)
+				// close still running sync
+				s.syncer.Close()
+				s.syncer = replication.NewBinlogSyncer(&cfg)
+				streamer, isGTIDMode, err1 = s.getBinlogStreamer()
 				if err1 != nil {
 					return errors.Trace(err1)
 				}
@@ -900,7 +916,8 @@ func (s *Syncer) printStatus() {
 	}
 }
 
-func (s *Syncer) getBinlogStreamer(gtidMap map[string]string) (*replication.BinlogStreamer, bool, error) {
+func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, bool, error) {
+	gtidMap := s.meta.GTID()
 	if s.cfg.EnableGTID && len(gtidMap) != 0 {
 		var gtids []string
 		for _, val := range gtidMap {
