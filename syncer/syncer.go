@@ -634,8 +634,9 @@ func (s *Syncer) run() error {
 	pos := s.meta.Pos()
 	// while meet GTIDEvent, save previous gtid to prevent losing binlog from syncer panicing
 	var (
-		id   string
-		gtid string
+		id         string
+		gtid       string
+		needReSync = true
 	)
 	var alreadyIgnoreAllRotateEvent bool
 	for {
@@ -653,25 +654,20 @@ func (s *Syncer) run() error {
 		if err != nil {
 			log.Errorf("get binlog error %v", err)
 			// retry fix syncing in gtid mode
-			if isGTIDMode && isBinlogPurgedError(err) {
-				time.Sleep(waitTime)
-				err1 := s.retrySyncGTIDs()
-				if err1 != nil {
-					return err1
+			if needReSync && isGTIDMode && isBinlogPurgedError(err) {
+				time.Sleep(retryTimeout)
+				streamer, isGTIDMode, err = s.reSyncBinlog(&cfg)
+				if err != nil {
+					return errors.Trace(err)
 				}
-				// close still running sync
-				s.syncer.Close()
-				s.syncer = replication.NewBinlogSyncer(&cfg)
-				streamer, isGTIDMode, err1 = s.getBinlogStreamer()
-				if err1 != nil {
-					return errors.Trace(err1)
-				}
+				needReSync = false
 				continue
 			}
 
 			return errors.Trace(err)
 		}
-
+		// get binlog event, reset needReSync, so we can re-sync binlog while syncer meets errors next time
+		needReSync = true
 		// if gtid mode, should ignore the rotate events at head of event stream
 		if !alreadyIgnoreAllRotateEvent && isGTIDMode {
 			alreadyIgnoreAllRotateEvent = isNotRotateEvent(e)
@@ -952,6 +948,17 @@ func (s *Syncer) recordSkipSQLsPos(op opType, pos mysql.Position) error {
 	}
 
 	return nil
+}
+
+func (s *Syncer) reSyncBinlog(cfg *replication.BinlogSyncerConfig) (*replication.BinlogStreamer, bool, error) {
+	err := s.retrySyncGTIDs()
+	if err == nil {
+		return nil, false, err
+	}
+	// close still running sync
+	s.syncer.Close()
+	s.syncer = replication.NewBinlogSyncer(cfg)
+	return s.getBinlogStreamer()
 }
 
 func (s *Syncer) startSyncByPosition() (*replication.BinlogStreamer, bool, error) {
