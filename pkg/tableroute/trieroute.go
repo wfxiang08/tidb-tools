@@ -14,6 +14,7 @@
 package route
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/juju/errors"
@@ -33,22 +34,26 @@ const (
 
 const maxCacheNum = 1024
 
-// Router routes word to target word according to it's pattern word
-type Router interface {
-	// Insert will inserts one [pattern, target] rule pairs into Router
-	Insert(pattern string, target string) error
-	// Match will match all items that matched to the origin
-	Match(origin string) string
+// TableRouter routes schema/table to target schema/table according to it's pattern
+type TableRouter interface {
+	// Insert will inserts one [patternSchema, patternTable, targetSchema, targetTable] rule pair into Router
+	Insert(patternSchema, patternTable, targetSchema, targetTable string) error
+	// Match will match all items that matched to the schema/table
+	Match(schema, table string) (string, string)
 	// Remove will remove the matched rule
-	Remove(pattern string) error
+	Remove(schema, table string) error
 	// AllRules will returns all rules
-	AllRules() map[string]string
+	AllRules() map[string]map[string][]string
+}
+
+type itemList struct {
+	items []*item
 }
 
 type trieRouter struct {
 	sync.RWMutex
 
-	cache map[string]string
+	cache map[string][]string
 	root  *node
 
 	isEmpty bool
@@ -60,8 +65,11 @@ type node struct {
 }
 
 type item struct {
-	next    *node
-	literal string
+	next   *node
+	schema string
+	table  string
+	child  *node
+	isLeaf bool
 }
 
 func newNode() *node {
@@ -69,28 +77,57 @@ func newNode() *node {
 }
 
 // NewTrieRouter returns a trie Router
-func NewTrieRouter() Router {
-	return &trieRouter{cache: make(map[string]string), root: newNode(), isEmpty: true}
+func NewTrieRouter() TableRouter {
+	return &trieRouter{cache: make(map[string][]string), root: newNode(), isEmpty: true}
 }
 
 // Insert implements Router's Insert()
-func (t *trieRouter) Insert(pattern, target string) error {
-	if len(pattern) == 0 || len(target) == 0 {
-		return errors.Errorf("pattern %s and target %s can't be empty", pattern, target)
-	}
-	if pattern[0] == asterisk {
-		return errors.Errorf("invalid pattern %s", pattern)
+func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTable string) error {
+	if len(patternSchema) == 0 || len(targetSchema) == 0 {
+		return errors.Errorf("pattern schema %s and target schema %s/%s can't be empty", patternSchema, targetSchema)
 	}
 
 	t.Lock()
+	// insert schame pattern
+	schema, err := t.insert(t.root, patternSchema)
+	if err != nil {
+		t.Unlock()
+		return errors.Trace(err)
+	}
+	// insert table pattern
+	if len(patternTable) > 0 && len(targetTable) > 0 {
+		if schema.child == nil {
+			schema.child = newNode()
+		}
+		item, err := t.insert(schema.child, patternTable)
+		if err != nil {
+			t.Unlock()
+			return errors.Trace(err)
+		}
+		if len(item.table) > 0 && item.schema != targetSchema && item.table != targetTable {
+			t.Unlock()
+			return errors.Errorf("can't overwrite target %s/%s", item.schema, item.table)
+		}
+		item.schema = targetSchema
+		item.table = targetTable
+	} else {
+		if len(schema.schema) > 0 && targetSchema != schema.schema {
+			t.Unlock()
+			return errors.Errorf("can't overwrite target %s", schema.schema)
+		}
+		schema.schema = targetSchema
+	}
+	t.Unlock()
+	return nil
+}
 
-	n := t.root
+func (t *trieRouter) insert(root *node, pattern string) (*item, error) {
+	n := root
 	hadAsterisk := false
 	var entity *item
 	for i := range pattern {
 		if hadAsterisk {
-			t.Unlock()
-			return errors.Errorf("pattern %s is invaild", pattern)
+			return nil, errors.Errorf("pattern %s is invaild", pattern)
 		}
 
 		switch pattern[i] {
@@ -119,98 +156,135 @@ func (t *trieRouter) Insert(pattern, target string) error {
 		n = entity.next
 	}
 
-	if len(entity.literal) > 0 && entity.literal != target {
-		t.Unlock()
-		return errors.Errorf("subjects has conflict: had %s, want to insert %s", entity.literal, target)
-	}
-
 	t.isEmpty = false
-	entity.literal = target
-	t.Unlock()
+	entity.isLeaf = true
 
-	return nil
+	return entity, nil
 }
 
 // Match implements Router's Match()
-func (t *trieRouter) Match(s string) string {
-	if len(s) == 0 {
-		return ""
+// if there are more than two matchs, just return first one
+func (t *trieRouter) Match(schema, table string) (string, string) {
+	if len(schema) == 0 {
+		return "", ""
 	}
 
 	t.RLock()
 	if t.isEmpty {
 		t.RUnlock()
-		return ""
+		return "", ""
 	}
 
-	target, ok := t.cache[s]
+	// try to find schema/table in cache
+	targetStr := fmt.Sprintf("`%s`", schema)
+	if len(table) > 0 {
+		fmt.Sprintf("`%s`.`%s`", schema, table)
+	}
+	targets, ok := t.cache[targetStr]
 	t.RUnlock()
 	if ok {
-		return target
+		return targets[0], targets[1]
 	}
 
 	t.Lock()
-	target = t.matchNode(t.root, s)
+	// find matched schemas
+	targetSchemas := &itemList{}
+	t.matchNode(t.root, schema, targetSchemas)
+	for _, schema := range targetSchemas.items {
+		targetTables := &itemList{}
+		// if table is empty, just return first matched schema
+		if len(table) == 0 {
+			t.Unlock()
+			if len(schema.schema) > 0 {
+				return schema.schema, ""
+			}
+			return "", ""
+		}
+		// find matched tables
+		t.matchNode(schema.child, table, targetTables)
+		if len(targetTables.items) > 0 {
 
-	// Add to our cache
-	t.cache[s] = target
-	if len(t.cache) > maxCacheNum {
-		for literal := range t.cache {
-			delete(t.cache, literal)
-			break
+			t.cache[targetStr] = []string{targetTables.items[0].schema, targetTables.items[0].table}
+			if len(t.cache) > maxCacheNum {
+				for literal := range t.cache {
+					delete(t.cache, literal)
+					break
+				}
+			}
+			t.Unlock()
+			return targetTables.items[0].schema, targetTables.items[0].table
 		}
 	}
+
 	t.Unlock()
-	return target
+	return "", ""
+
 }
 
 // Remove implements Router's Remove(), but it do nothing now
-func (t *trieRouter) Remove(pattern string) error {
+func (t *trieRouter) Remove(schema, table string) error {
 	return nil
 }
 
 // AllRules implements Router's AllRules
-func (t *trieRouter) AllRules() map[string]string {
-	rules := make(map[string]string)
+func (t *trieRouter) AllRules() map[string]map[string][]string {
+	rules := make(map[string]map[string][]string)
+	schemas := make(map[string]*item)
 	var characters []byte
 	t.RLock()
-	t.travel(t.root, characters, rules)
+	t.travel(t.root, characters, schemas)
+	for ks, schema := range schemas {
+		rule, ok := rules[ks]
+		if !ok {
+			rule = make(map[string][]string)
+		}
+		tables := make(map[string]*item)
+		characters = characters[:0]
+		t.travel(schema.child, characters, tables)
+		for kt, table := range tables {
+			rule[kt] = []string{table.schema, table.table}
+		}
+		if len(schema.schema) > 0 {
+			rule[""] = []string{schema.schema, ""}
+		}
+		rules[ks] = rule
+	}
 	t.RUnlock()
 	return rules
 }
 
-func (t *trieRouter) travel(n *node, characters []byte, rules map[string]string) {
+func (t *trieRouter) travel(n *node, characters []byte, rules map[string]*item) {
 	if n == nil {
 		return
 	}
 
 	if n.asterisk != nil {
-		if len(n.asterisk.literal) > 0 {
+		if n.asterisk.isLeaf {
 			pattern := append(characters, asterisk)
-			rules[string(pattern)] = n.asterisk.literal
+			rules[string(pattern)] = n.asterisk
 		}
 	}
 
 	if n.question != nil {
 		pattern := append(characters, question)
-		if len(n.question.literal) > 0 {
-			rules[string(pattern)] = n.question.literal
+		if n.question.isLeaf {
+			rules[string(pattern)] = n.question
 		}
 		t.travel(n.question.next, pattern, rules)
 	}
 
 	for char, item := range n.characters {
 		pattern := append(characters, char)
-		if len(item.literal) > 0 {
-			rules[string(pattern)] = item.literal
+		if item.isLeaf {
+			rules[string(pattern)] = item
 		}
 		t.travel(item.next, pattern, rules)
 	}
 }
 
-func (t *trieRouter) matchNode(n *node, s string) string {
+func (t *trieRouter) matchNode(n *node, s string, res *itemList) {
 	if n == nil {
-		return ""
+		return
 	}
 
 	var (
@@ -218,35 +292,30 @@ func (t *trieRouter) matchNode(n *node, s string) string {
 		entity *item
 	)
 	for i := range s {
-		if n.asterisk != nil && len(n.asterisk.literal) > 0 {
-			return n.asterisk.literal
+		if n.asterisk != nil && n.asterisk.isLeaf {
+			res.items = append(res.items, n.asterisk)
 		}
 
 		if n.question != nil {
-			if i == len(s)-1 && len(n.question.literal) > 0 {
-				return n.question.literal
+			if i == len(s)-1 && n.question.isLeaf {
+				res.items = append(res.items, n.question)
 			}
 
-			target := t.matchNode(n.question.next, s[i+1:])
-			if len(target) > 0 {
-				return target
-			}
+			t.matchNode(n.question.next, s[i+1:], res)
 		}
 
 		entity, ok = n.characters[s[i]]
 		if !ok {
-			return ""
+			return
 		}
 		n = entity.next
 	}
 
-	if entity != nil && len(entity.literal) > 0 {
-		return entity.literal
+	if entity != nil && entity.isLeaf {
+		res.items = append(res.items, entity)
 	}
 
-	if n.asterisk != nil && len(n.asterisk.literal) > 0 {
-		return n.asterisk.literal
+	if n.asterisk != nil && n.asterisk.isLeaf {
+		res.items = append(res.items, n.asterisk)
 	}
-
-	return ""
 }
