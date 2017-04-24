@@ -178,7 +178,7 @@ func (t *trieRouter) Match(schema, table string) (string, string) {
 	// try to find schema/table in cache
 	targetStr := fmt.Sprintf("`%s`", schema)
 	if len(table) > 0 {
-		fmt.Sprintf("`%s`.`%s`", schema, table)
+		targetStr = fmt.Sprintf("`%s`.`%s`", schema, table)
 	}
 	targets, ok := t.cache[targetStr]
 	t.RUnlock()
@@ -203,7 +203,6 @@ func (t *trieRouter) Match(schema, table string) (string, string) {
 		// find matched tables
 		t.matchNode(schema.child, table, targetTables)
 		if len(targetTables.items) > 0 {
-
 			t.cache[targetStr] = []string{targetTables.items[0].schema, targetTables.items[0].table}
 			if len(t.cache) > maxCacheNum {
 				for literal := range t.cache {

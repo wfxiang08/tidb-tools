@@ -18,7 +18,7 @@ type testRouteSuite struct{}
 func (t *testRouteSuite) TestRoute(c *C) {
 	r := NewTrieRouter()
 	t.testInsert(c, r)
-	//t.testMatch(c, r)
+	t.testMatch(c, r)
 }
 
 func (t *testRouteSuite) testInsert(c *C, r TableRouter) {
