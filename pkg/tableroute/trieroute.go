@@ -84,7 +84,7 @@ func NewTrieRouter() TableRouter {
 // Insert implements Router's Insert()
 func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTable string) error {
 	if len(patternSchema) == 0 || len(targetSchema) == 0 {
-		return errors.Errorf("pattern schema %s and target schema %s/%s can't be empty", patternSchema, targetSchema)
+		return errors.Errorf("pattern schema %s and target schema %s can't be empty", patternSchema, targetSchema)
 	}
 
 	t.Lock()
