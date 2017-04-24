@@ -62,8 +62,7 @@ type Syncer struct {
 	done chan struct{}
 	jobs []chan *job
 
-	schemaRouter route.Router
-	tableRouter  route.Router
+	tableRouter route.TableRouter
 
 	closed sync2.AtomicBool
 
@@ -585,8 +584,7 @@ func (s *Syncer) run() error {
 		case *replication.RowsEvent:
 			// binlogEventsTotal.WithLabelValues("type", "rows").Add(1)
 			//
-			schemaName := s.fetchMatchedLiteral(s.schemaRouter, string(ev.Table.Schema))
-			tableName := s.fetchMatchedLiteral(s.tableRouter, string(ev.Table.Table))
+			schemaName, tableName := s.fetchMatchedLiteral(string(ev.Table.Schema), string(ev.Table.Table))
 			table := &table{}
 			if s.skipRowEvent(schemaName, tableName) {
 				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
@@ -731,18 +729,10 @@ func (s *Syncer) run() error {
 }
 
 func (s *Syncer) genRouter() {
-	s.schemaRouter = route.NewTrieRouter()
 	s.tableRouter = route.NewTrieRouter()
 
 	for _, rule := range s.cfg.RouteRules {
-		switch rule.Kind {
-		case "schema":
-			s.schemaRouter.Insert(rule.Pattern, rule.Target)
-		case "table":
-			s.tableRouter.Insert(rule.Pattern, rule.Target)
-		default:
-			log.Errorf("invalid route rule %+v", rule)
-		}
+		s.tableRouter.Insert(rule.Schema, rule.Table, rule.TargetSchema, rule.TargertTable)
 	}
 }
 
@@ -881,9 +871,10 @@ func (s *Syncer) fetchDDLTableNames(sql string, schema string) ([][]*TableName, 
 		if tableNames[i].Schema == "" {
 			tableNames[i].Schema = schema
 		}
+		schema, table := s.fetchMatchedLiteral(tableNames[i].Schema, tableNames[i].Name)
 		tableName := &TableName{
-			Schema: s.fetchMatchedLiteral(s.schemaRouter, tableNames[i].Schema),
-			Name:   s.fetchMatchedLiteral(s.tableRouter, tableNames[i].Name),
+			Schema: schema,
+			Name:   table,
 		}
 		targetTableNames = append(targetTableNames, tableName)
 	}
@@ -891,16 +882,16 @@ func (s *Syncer) fetchDDLTableNames(sql string, schema string) ([][]*TableName, 
 	return [][]*TableName{tableNames, targetTableNames}, nil
 }
 
-func (s *Syncer) fetchMatchedLiteral(router route.Router, literal string) string {
-	if literal == "" {
-		return literal
+func (s *Syncer) fetchMatchedLiteral(schema, table string) (string, string) {
+	if schema == "" {
+		return schema, table
 	}
-	res := router.Match(literal)
-	if res == "" {
-		return literal
+	targetSchema, targetTable := s.tableRouter.Match(schema, table)
+	if targetSchema == "" {
+		return schema, table
 	}
 
-	return res
+	return targetSchema, targetTable
 }
 
 func (s *Syncer) isClosed() bool {

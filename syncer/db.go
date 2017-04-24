@@ -470,9 +470,13 @@ func genDDLSQL(sql string, originTableNames []*TableName, targetTableNames []*Ta
 		return strings.Replace(sql, originTableNames[0].Schema, targetTableNames[0].Schema, 1), nil
 	case *ast.CreateTableStmt:
 		// todo: fix the ugly code
+		var (
+			sqlPreifx string
+			index     int
+		)
 		if len(originTableNames) == 2 {
-			sqlPreifx := createTableLikeRegex.FindString(sql)
-			index := findLastWord(sqlPreifx)
+			sqlPreifx = createTableLikeRegex.FindString(sql)
+			index = findLastWord(sqlPreifx)
 			sql = createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`", sqlPreifx[:index], targetTableNames[1].Schema, targetTableNames[1].Name))
 		}
 		sqlPreifx = createTableRegex.FindString(sql)
