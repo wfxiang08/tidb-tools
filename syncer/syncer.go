@@ -584,7 +584,7 @@ func (s *Syncer) run() error {
 		case *replication.RowsEvent:
 			// binlogEventsTotal.WithLabelValues("type", "rows").Add(1)
 			//
-			schemaName, tableName := s.fetchMatchedLiteral(string(ev.Table.Schema), string(ev.Table.Table))
+			schemaName, tableName := s.renameShardingSchema(string(ev.Table.Schema), string(ev.Table.Table))
 			table := &table{}
 			if s.skipRowEvent(schemaName, tableName) {
 				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
@@ -675,12 +675,11 @@ func (s *Syncer) run() error {
 				continue
 			}
 
-			tableNames, err := s.fetchDDLTableNames(sql, string(ev.Schema))
-			if err != nil {
-				return errors.Trace(err)
-			}
-
 			for _, sql := range sqls {
+				tableNames, err := s.fetchDDLTableNames(sql, string(ev.Schema))
+				if err != nil {
+					return errors.Trace(err)
+				}
 				if s.skipQueryDDL(sql, tableNames[1]) {
 					binlogSkippedEventsTotal.WithLabelValues("query_ddl").Inc()
 					if err = s.recordSkipSQLsPos(ddl, pos); err != nil {
@@ -871,7 +870,7 @@ func (s *Syncer) fetchDDLTableNames(sql string, schema string) ([][]*TableName, 
 		if tableNames[i].Schema == "" {
 			tableNames[i].Schema = schema
 		}
-		schema, table := s.fetchMatchedLiteral(tableNames[i].Schema, tableNames[i].Name)
+		schema, table := s.renameShardingSchema(tableNames[i].Schema, tableNames[i].Name)
 		tableName := &TableName{
 			Schema: schema,
 			Name:   table,
@@ -882,13 +881,16 @@ func (s *Syncer) fetchDDLTableNames(sql string, schema string) ([][]*TableName, 
 	return [][]*TableName{tableNames, targetTableNames}, nil
 }
 
-func (s *Syncer) fetchMatchedLiteral(schema, table string) (string, string) {
+func (s *Syncer) renameShardingSchema(schema, table string) (string, string) {
 	if schema == "" {
 		return schema, table
 	}
 	targetSchema, targetTable := s.tableRouter.Match(schema, table)
 	if targetSchema == "" {
 		return schema, table
+	}
+	if targetTable == "" {
+		targetTable = table
 	}
 
 	return targetSchema, targetTable

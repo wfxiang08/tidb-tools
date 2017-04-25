@@ -189,34 +189,29 @@ func (t *trieRouter) Match(schema, table string) (string, string) {
 	t.Lock()
 	// find matched schemas
 	targetSchemas := &itemList{}
+	targetSchema := ""
 	t.matchNode(t.root, schema, targetSchemas)
-	for _, schema := range targetSchemas.items {
+	for _, s := range targetSchemas.items {
 		targetTables := &itemList{}
 		// if table is empty, just return first matched schema
 		if len(table) == 0 {
+			t.addToCache(targetStr, []string{s.schema, ""})
 			t.Unlock()
-			if len(schema.schema) > 0 {
-				return schema.schema, ""
-			}
-			return "", ""
+			return s.schema, ""
 		}
+		targetSchema = s.schema
 		// find matched tables
-		t.matchNode(schema.child, table, targetTables)
+		t.matchNode(s.child, table, targetTables)
 		if len(targetTables.items) > 0 {
-			t.cache[targetStr] = []string{targetTables.items[0].schema, targetTables.items[0].table}
-			if len(t.cache) > maxCacheNum {
-				for literal := range t.cache {
-					delete(t.cache, literal)
-					break
-				}
-			}
+			t.addToCache(targetStr, []string{targetTables.items[0].schema, targetTables.items[0].table})
 			t.Unlock()
 			return targetTables.items[0].schema, targetTables.items[0].table
 		}
 	}
-
+	// not found table
+	t.addToCache(targetStr, []string{targetSchema, ""})
 	t.Unlock()
-	return "", ""
+	return targetSchema, ""
 
 }
 
@@ -250,6 +245,16 @@ func (t *trieRouter) AllRules() map[string]map[string][]string {
 	}
 	t.RUnlock()
 	return rules
+}
+
+func (t *trieRouter) addToCache(key string, targets []string) {
+	t.cache[key] = targets
+	if len(t.cache) > maxCacheNum {
+		for literal := range t.cache {
+			delete(t.cache, literal)
+			break
+		}
+	}
 }
 
 func (t *trieRouter) travel(n *node, characters []byte, rules map[string]*item) {

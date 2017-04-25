@@ -56,6 +56,7 @@ func (t *testRouteSuite) testMatch(c *C, r TableRouter) {
 		{"adc", "abc1", "abc", "abc2"},
 		{"adc", "xyz1", "abc", "abc2"},
 		{"axc", "xyz1", "abc", "abc2"},
+		{"dbc", "xxx", "abc", ""},
 	}
 	cache := make(map[string][]string)
 	for _, tc := range cases {
@@ -69,4 +70,10 @@ func (t *testRouteSuite) testMatch(c *C, r TableRouter) {
 	trie, ok := r.(*trieRouter)
 	c.Assert(ok, IsTrue)
 	c.Assert(trie.cache, DeepEquals, cache)
+	// test schema mathced
+	shema, table := r.Match("dbc", "")
+	c.Assert(shema, Equals, "abc")
+	c.Assert(table, Equals, "")
+	c.Assert(trie.cache["`dbc`"], DeepEquals, []string{"abc", ""})
+
 }

@@ -462,30 +462,46 @@ func genDDLSQL(sql string, originTableNames []*TableName, targetTableNames []*Ta
 	}
 
 	switch stmt.(type) {
-	case *ast.CreateDatabaseStmt, *ast.DropDatabaseStmt:
+	case *ast.CreateDatabaseStmt:
 		if originTableNames[0].Schema == targetTableNames[0].Schema {
 			return sql, nil
 		}
-		// todo: enough? if schema = "DATA"
-		return strings.Replace(sql, originTableNames[0].Schema, targetTableNames[0].Schema, 1), nil
+		sqlPrefix := createDatabaseRegex.FindString(sql)
+		index := findLastWord(sqlPrefix)
+		return createDatabaseRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`", sqlPrefix[:index], targetTableNames[0].Schema)), nil
+	case *ast.DropDatabaseStmt:
+		if originTableNames[0].Schema == targetTableNames[0].Schema {
+			return sql, nil
+		}
+		sqlPrefix := dropDatabaseRegex.FindString(sql)
+		index := findLastWord(sqlPrefix)
+		return dropDatabaseRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`", sqlPrefix[:index], targetTableNames[0].Schema)), nil
 	case *ast.CreateTableStmt:
 		// todo: fix the ugly code
 		var (
-			sqlPreifx string
+			sqlPrefix string
 			index     int
 		)
+		// replace `like schema.table` section
 		if len(originTableNames) == 2 {
-			sqlPreifx = createTableLikeRegex.FindString(sql)
-			index = findLastWord(sqlPreifx)
-			sql = createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`", sqlPreifx[:index], targetTableNames[1].Schema, targetTableNames[1].Name))
+			sqlPrefix = createTableLikeRegex.FindString(sql)
+			index = findLastWord(sqlPrefix)
+			endChars := ""
+			if sqlPrefix[len(sqlPrefix)-1] == ')' {
+				endChars = ")"
+			}
+			sql = createTableLikeRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`%s", sqlPrefix[:index], targetTableNames[1].Schema, targetTableNames[1].Name, endChars))
+			fmt.Println(sql)
 		}
-		sqlPreifx = createTableRegex.FindString(sql)
-		index = findLastWord(sqlPreifx)
-		return createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`", sqlPreifx[:index], targetTableNames[0].Schema, targetTableNames[0].Name)), nil
+		// replce `create table schame.table` section
+		sqlPrefix = createTableRegex.FindString(sql)
+		index = findLastWord(sqlPrefix)
+		endChars := fetchTableDefine(sqlPrefix[index:])
+		return createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`%s", sqlPrefix[:index], targetTableNames[0].Schema, targetTableNames[0].Name, endChars)), nil
 	case *ast.DropTableStmt:
-		sqlPreifx := dropTableRegex.FindString(sql)
-		index := findLastWord(sqlPreifx)
-		sql = dropTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`", sqlPreifx[:index], targetTableNames[0].Name))
+		sqlPrefix := dropTableRegex.FindString(sql)
+		index := findLastWord(sqlPrefix)
+		sql = dropTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`", sqlPrefix[:index], targetTableNames[0].Name))
 	case *ast.TruncateTableStmt:
 		sql = fmt.Sprintf("TRUNCATE TABLE `%s`", targetTableNames[0].Name)
 	case *ast.AlterTableStmt:
@@ -500,6 +516,15 @@ func genDDLSQL(sql string, originTableNames []*TableName, targetTableNames []*Ta
 	}
 
 	return fmt.Sprintf("use `%s`; %s;", targetTableNames[0].Schema, sql), nil
+}
+
+func fetchTableDefine(literal string) string {
+	for i := range literal {
+		if literal[i] == '(' {
+			return literal[i:]
+		}
+	}
+	return ""
 }
 
 func genTableName(schema string, table string) *TableName {
@@ -676,8 +701,12 @@ LOOP:
 }
 
 func findLastWord(literal string) int {
-	index := len(literal)
-	for index > 0 {
+	index := len(literal) - 1
+	for index >= 0 && literal[index-1] == ' ' {
+		index--
+	}
+
+	for index >= 0 {
 		if literal[index-1] == ' ' {
 			return index
 		}

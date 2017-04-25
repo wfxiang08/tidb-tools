@@ -120,18 +120,19 @@ func (s *testSyncerSuite) TestSelectDB(c *C) {
 		}
 
 		e, err := s.streamer.GetEvent(context.Background())
-		if err != nil {
-			log.Fatal(err)
-		}
+		c.Assert(err, IsNil)
 		ev, ok := e.Event.(*replication.QueryEvent)
 		if !ok {
 			continue
 		}
 		sql := string(ev.Query)
-		if syncer.skipQueryEvent(sql, string(ev.Schema)) {
+		if syncer.skipQueryEvent(sql) {
 			continue
 		}
-		r := syncer.skipQueryDDL(sql, string(ev.Schema))
+
+		tableNames, err := syncer.fetchDDLTableNames(sql, string(ev.Schema))
+		c.Assert(err, IsNil)
+		r := syncer.skipQueryDDL(sql, tableNames[1])
 		c.Assert(r, Equals, res[i])
 		i++
 	}
@@ -140,7 +141,7 @@ func (s *testSyncerSuite) TestSelectDB(c *C) {
 
 func (s *testSyncerSuite) TestSelectTable(c *C) {
 	s.cfg.DoDBs = []string{"t2"}
-	s.cfg.DoTables = []TableName{
+	s.cfg.DoTables = []*TableName{
 		{Schema: "stest", Name: "log"},
 		{Schema: "stest", Name: "~^t.*"},
 	}
@@ -210,7 +211,7 @@ func (s *testSyncerSuite) TestSelectTable(c *C) {
 		switch ev := e.Event.(type) {
 		case *replication.QueryEvent:
 			query := string(ev.Query)
-			if syncer.skipQueryEvent(query, string(ev.Schema)) {
+			if syncer.skipQueryEvent(query) {
 				continue
 			}
 
@@ -218,11 +219,11 @@ func (s *testSyncerSuite) TestSelectTable(c *C) {
 			if !ok {
 				continue
 			}
-			if err != nil {
-				log.Fatalf("ResolveDDlSQL failed %v", err)
-			}
+			c.Assert(err, IsNil)
 			for j, q := range querys {
-				r := syncer.skipQueryDDL(q, string(ev.Schema))
+				tableNames, err := syncer.fetchDDLTableNames(q, string(ev.Schema))
+				c.Assert(err, IsNil)
+				r := syncer.skipQueryDDL(q, tableNames[1])
 				c.Assert(r, Equals, res[i][j])
 			}
 		case *replication.RowsEvent:
@@ -278,10 +279,12 @@ func (s *testSyncerSuite) TestIgnoreDB(c *C) {
 			continue
 		}
 		sql := string(ev.Query)
-		if syncer.skipQueryEvent(sql, string(ev.Schema)) {
+		if syncer.skipQueryEvent(sql) {
 			continue
 		}
-		r := syncer.skipQueryDDL(sql, string(ev.Schema))
+		tableNames, err := syncer.fetchDDLTableNames(sql, string(ev.Schema))
+		c.Assert(err, IsNil)
+		r := syncer.skipQueryDDL(sql, tableNames[1])
 		c.Assert(r, Equals, res[i])
 		i++
 	}
@@ -290,7 +293,7 @@ func (s *testSyncerSuite) TestIgnoreDB(c *C) {
 
 func (s *testSyncerSuite) TestIgnoreTable(c *C) {
 	s.cfg.IgnoreDBs = []string{"t2"}
-	s.cfg.IgnoreTables = []TableName{
+	s.cfg.IgnoreTables = []*TableName{
 		{Schema: "stest", Name: "log"},
 		{Schema: "stest", Name: "~^t.*"},
 	}
@@ -359,7 +362,7 @@ func (s *testSyncerSuite) TestIgnoreTable(c *C) {
 		switch ev := e.Event.(type) {
 		case *replication.QueryEvent:
 			query := string(ev.Query)
-			if syncer.skipQueryEvent(query, string(ev.Schema)) {
+			if syncer.skipQueryEvent(query) {
 				continue
 			}
 
@@ -371,7 +374,9 @@ func (s *testSyncerSuite) TestIgnoreTable(c *C) {
 				log.Fatalf("ResolveDDlSQL failed %v", err)
 			}
 			for j, q := range querys {
-				r := syncer.skipQueryDDL(q, string(ev.Schema))
+				tableNames, err := syncer.fetchDDLTableNames(q, string(ev.Schema))
+				c.Assert(err, IsNil)
+				r := syncer.skipQueryDDL(q, tableNames[1])
 				c.Assert(r, Equals, res[i][j])
 			}
 		case *replication.RowsEvent:
@@ -397,7 +402,7 @@ func (s *testSyncerSuite) TestQueryEvent(c *C) {
 
 	res := []bool{true}
 	for i, sql := range sqls {
-		r := syncer.skipQueryEvent(sql, "")
+		r := syncer.skipQueryEvent(sql)
 		c.Assert(r, Equals, res[i])
 	}
 }
