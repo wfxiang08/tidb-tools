@@ -24,12 +24,12 @@ func (t *testRouteSuite) TestRoute(c *C) {
 func (t *testRouteSuite) testInsert(c *C, r TableRouter) {
 	var err error
 	cases := map[string]map[string][]string{
-		"?bc":  map[string][]string{"abc*": {"abc", "abc1"}, "xyz*": {"abc", "abc2"}},
-		"a?c":  map[string][]string{"xyz*": {"abc", "abc2"}, "abc*": {"abc", "abc2"}},
-		"ab*":  map[string][]string{"abc*": {"abc", "abc3"}},
-		"a*":   map[string][]string{"": {"abc", ""}},
-		"xyz":  map[string][]string{"xyz*": {"abc", "abc4"}},
-		"xyy*": map[string][]string{"xyz*": {"xyz", "abc5"}},
+		"?bc":  {"abc*": []string{"abc", "abc1"}, "xyz*": []string{"abc", "abc2"}},
+		"a?c":  {"xyz*": {"abc", "abc2"}, "abc*": {"abc", "abc2"}},
+		"ab*":  {"abc*": {"abc", "abc3"}},
+		"a*":   {"": {"abc", ""}},
+		"xyz":  {"xyz*": {"abc", "abc4"}},
+		"xyy*": {"xyz*": {"xyz", "abc5"}},
 	}
 	for schema, targets := range cases {
 		for table, target := range targets {
@@ -56,6 +56,7 @@ func (t *testRouteSuite) testMatch(c *C, r TableRouter) {
 		{"adc", "abc1", "abc", "abc2"},
 		{"adc", "xyz1", "abc", "abc2"},
 		{"axc", "xyz1", "abc", "abc2"},
+		{"dbc", "xxx", "abc", ""},
 	}
 	cache := make(map[string][]string)
 	for _, tc := range cases {
@@ -69,4 +70,9 @@ func (t *testRouteSuite) testMatch(c *C, r TableRouter) {
 	trie, ok := r.(*trieRouter)
 	c.Assert(ok, IsTrue)
 	c.Assert(trie.cache, DeepEquals, cache)
+	// test schema mathced
+	shema, table := r.Match("dbc", "")
+	c.Assert(shema, Equals, "abc")
+	c.Assert(table, Equals, "")
+	c.Assert(trie.cache["`dbc`"], DeepEquals, []string{"abc", ""})
 }

@@ -39,12 +39,13 @@ const (
 	restoreTable
 )
 
+// Set represents a set in mathematics.
 type Set map[string]struct{}
 
 // DataFiles represent all data files for a single table
 type DataFiles []string
 
-// Tables represent all data files of a table collection as a map
+// Tables2DataFiles represent all data files of a table collection as a map
 type Tables2DataFiles map[string]DataFiles
 
 type dataJob struct {
@@ -63,6 +64,7 @@ type tableJob struct {
 	checkExist    bool
 }
 
+// WorkerPool represents a worker pool.
 type WorkerPool struct {
 	cfg        *Config
 	checkPoint *CheckPoint
