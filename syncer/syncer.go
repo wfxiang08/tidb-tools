@@ -732,7 +732,6 @@ func (s *Syncer) run() error {
 
 func (s *Syncer) genRouter() error {
 	s.tableRouter = route.NewTrieRouter()
-
 	for _, rule := range s.cfg.RouteRules {
 		err := s.tableRouter.Insert(rule.PatternSchema, rule.PatternTable, rule.TargetSchema, rule.TargertTable)
 		if err != nil {
@@ -889,6 +888,8 @@ func (s *Syncer) fetchDDLTableNames(sql string, schema string) ([][]*TableName, 
 }
 
 func (s *Syncer) renameShardingSchema(schema, table string) (string, string) {
+	schema = strings.ToLower(schema)
+	table = strings.ToLower(table)
 	if schema == "" {
 		return schema, table
 	}

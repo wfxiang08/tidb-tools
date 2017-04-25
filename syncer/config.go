@@ -145,19 +145,25 @@ func (c *Config) Parse(arguments []string) error {
 }
 
 func (c *Config) adjust() {
-	for i := 0; i < len(c.DoTables); i++ {
-		c.DoTables[i].Name = strings.ToLower(c.DoTables[i].Name)
-		c.DoTables[i].Schema = strings.ToLower(c.DoTables[i].Schema)
+	for _, table := range c.DoTables {
+		table.Name = strings.ToLower(table.Name)
+		table.Schema = strings.ToLower(table.Schema)
 	}
-	for i := 0; i < len(c.IgnoreTables); i++ {
-		c.IgnoreTables[i].Name = strings.ToLower(c.IgnoreTables[i].Name)
-		c.IgnoreTables[i].Schema = strings.ToLower(c.IgnoreTables[i].Schema)
+	for _, table := range c.IgnoreTables {
+		table.Name = strings.ToLower(table.Name)
+		table.Schema = strings.ToLower(table.Schema)
 	}
-	for i := 0; i < len(c.IgnoreDBs); i++ {
-		c.IgnoreDBs[i] = strings.ToLower(c.IgnoreDBs[i])
+	for i, db := range c.IgnoreDBs {
+		c.IgnoreDBs[i] = strings.ToLower(db)
 	}
-	for i := 0; i < len(c.DoDBs); i++ {
-		c.DoDBs[i] = strings.ToLower(c.DoDBs[i])
+	for i, db := range c.DoDBs {
+		c.DoDBs[i] = strings.ToLower(db)
+	}
+	for _, rule := range c.RouteRules {
+		rule.PatternSchema = strings.ToLower(rule.PatternSchema)
+		rule.PatternTable = strings.ToLower(rule.PatternTable)
+		rule.TargetSchema = strings.ToLower(rule.TargetSchema)
+		rule.TargertTable = strings.ToLower(rule.TargertTable)
 	}
 }
 
