@@ -32,13 +32,6 @@ var (
 	maxRetryCount = 10
 )
 
-type restoreType byte
-
-const (
-	restoreSchema restoreType = iota + 1
-	restoreTable
-)
-
 // Set represents a set in mathematics.
 type Set map[string]struct{}
 
@@ -256,8 +249,10 @@ func NewLoader(cfg *Config) *Loader {
 
 // Restore begins the restore process.
 func (l *Loader) Restore() error {
-
-	l.tableRouter = genRouter(l.cfg.RouteRules)
+	err := l.genRouter(l.cfg.RouteRules)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	if err := l.prepare(); err != nil {
 		log.Errorf("[loader] scan dir[%s] failed, err[%v]", l.cfg.Dir, err)
@@ -286,14 +281,17 @@ func (l *Loader) Restore() error {
 	return nil
 }
 
-func genRouter(rules []*RouteRule) (tableRouter route.TableRouter) {
-	tableRouter = route.NewTrieRouter()
+func (l *Loader) genRouter(rules []*RouteRule) error {
+	l.tableRouter = route.NewTrieRouter()
 
 	for _, rule := range rules {
-		tableRouter.Insert(rule.SchemaPattern, rule.TablePattern, rule.TargetSchema, rule.TargetTable)
+		err := l.tableRouter.Insert(rule.PatternSchema, rule.PatternTable, rule.TargetSchema, rule.TargetTable)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
-	log.Debugf("table_router rules:%+v", tableRouter.AllRules())
-	return tableRouter
+	log.Debugf("table_router rules:%+v", l.tableRouter.AllRules())
+	return nil
 }
 
 func (l *Loader) initAndStartWorkerPools() error {
@@ -433,7 +431,7 @@ func (l *Loader) prepare() error {
 	return l.prepareDataFiles(files)
 }
 
-func (l *Loader) restoreSchema(conn *Conn, sqlFile string, schema string, table string, typ restoreType) error {
+func (l *Loader) restoreSchema(conn *Conn, sqlFile string, schema string, table string) error {
 	f, err := os.Open(sqlFile)
 	if err != nil {
 		return errors.Trace(err)
@@ -460,22 +458,19 @@ func (l *Loader) restoreSchema(conn *Conn, sqlFile string, schema string, table 
 					continue
 				}
 
-				// rename schema
-				if typ == restoreSchema {
+				var sqls []string
+
+				if table != "" {
+					// for table
+					query = renameShardingTable(l.tableRouter, query, schema, table)
+					schema, _ = fetchMatchedLiteral(l.tableRouter, schema, table)
+					sqls = append(sqls, fmt.Sprintf("use %s;", schema))
+				} else {
+					// for schema
 					query = renameShardingSchema(l.tableRouter, query, schema, table)
 				}
 
-				// rename table
-				if typ == restoreTable {
-					query = renameShardingTable(l.tableRouter, query, schema, table)
-				}
 				log.Debugf("query:%s", query)
-
-				var sqls []string
-				if typ == restoreTable {
-					schema, _ = fetchMatchedLiteral(l.tableRouter, schema, table)
-					sqls = append(sqls, fmt.Sprintf("use %s;", schema))
-				}
 
 				sqls = append(sqls, query)
 				err = executeSQL(conn, sqls, false, false)
@@ -507,15 +502,26 @@ func renameShardingSchema(router route.TableRouter, query, schema, table string)
 }
 
 func fetchMatchedLiteral(router route.TableRouter, schema, table string) (string, string) {
+	schema, table = toLower(schema, table)
 	if schema == "" {
+		// nothing change
 		return schema, table
 	}
 	targetSchema, targetTable := router.Match(schema, table)
 	if targetSchema == "" {
+		// nothing change
 		return schema, table
+	}
+	if targetTable == "" {
+		// table still same;
+		targetTable = table
 	}
 
 	return targetSchema, targetTable
+}
+
+func toLower(schema, table string) (string, string) {
+	return strings.ToLower(schema), strings.ToLower(table)
 }
 
 func causeErr(err error) error {
@@ -555,7 +561,7 @@ func (l *Loader) restoreData() error {
 		// create db
 		dbFile := fmt.Sprintf("%s/%s-schema-create.sql", l.cfg.Dir, db)
 		log.Infof("[loader][run db schema]%s[start]", dbFile)
-		err = l.restoreSchema(conn, dbFile, db, "", restoreSchema)
+		err = l.restoreSchema(conn, dbFile, db, "")
 		if err != nil {
 			if isErrDBExists(err) {
 				log.Infof("[loader][database already exists, skip]%s", dbFile)
@@ -582,7 +588,7 @@ func (l *Loader) restoreData() error {
 			// create table
 			tableExist := false
 			tableFile := fmt.Sprintf("%s/%s.%s-schema.sql", l.cfg.Dir, db, table)
-			err := l.restoreSchema(conn, tableFile, db, table, restoreTable)
+			err := l.restoreSchema(conn, tableFile, db, table)
 			if err != nil {
 				if isErrTableExists(err) {
 					log.Infof("[loader][table already exists, skip]%s", tableFile)

@@ -76,6 +76,8 @@ func CollectDirFiles(path string) map[string]struct{} {
 	return files
 }
 
+// SQLReplace works like strings.Replace but only supports one replacement.
+// It uses backquote pairs to quote the old and new word.
 func SQLReplace(s, old, new string) string {
 	old = backquote(old)
 	new = backquote(new)

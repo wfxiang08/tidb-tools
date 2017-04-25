@@ -16,6 +16,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/juju/errors"
@@ -98,8 +99,8 @@ type Config struct {
 
 // RouteRule is the route rule for loading schema and table into specified schema and table.
 type RouteRule struct {
-	SchemaPattern string `toml:"schema-pattern" json:"schema-pattern"`
-	TablePattern  string `toml:"table-pattern" json:"table-pattern"`
+	PatternSchema string `toml:"pattern-schema" json:"pattern-schema"`
+	PatternTable  string `toml:"pattern-table" json:"pattern-table"`
 	TargetSchema  string `toml:"target-schema" json:"target-schema"`
 	TargetTable   string `toml:"target-table" json:"target-table"`
 }
@@ -130,7 +131,18 @@ func (c *Config) Parse(arguments []string) error {
 		return errors.Errorf("'%s' is an invalid flag", c.FlagSet.Arg(0))
 	}
 
+	c.adjust()
+
 	return nil
+}
+
+func (c *Config) adjust() {
+	for _, rule := range c.RouteRules {
+		rule.PatternSchema = strings.ToLower(rule.PatternSchema)
+		rule.PatternTable = strings.ToLower(rule.PatternTable)
+		rule.TargetSchema = strings.ToLower(rule.TargetSchema)
+		rule.TargetTable = strings.ToLower(rule.TargetTable)
+	}
 }
 
 func (c *Config) String() string {
