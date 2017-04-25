@@ -68,6 +68,7 @@ type WorkerPool struct {
 	tableRouter route.TableRouter
 }
 
+// NewWorkerPool returns a WorkerPool.
 func NewWorkerPool(cfg *Config, checkPoint *CheckPoint, tableRouter route.TableRouter) (*WorkerPool, error) {
 	pool := new(WorkerPool)
 	pool.cfg = cfg
