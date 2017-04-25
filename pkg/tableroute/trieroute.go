@@ -163,7 +163,7 @@ func (t *trieRouter) insert(root *node, pattern string) (*item, error) {
 }
 
 // Match implements Router's Match()
-// if there are more than two matchs, just return first one
+// if there are more than one matchs, just return one of them
 func (t *trieRouter) Match(schema, table string) (string, string) {
 	if len(schema) == 0 {
 		return "", ""
