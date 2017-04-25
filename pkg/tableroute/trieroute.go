@@ -212,7 +212,6 @@ func (t *trieRouter) Match(schema, table string) (string, string) {
 	t.addToCache(targetStr, []string{targetSchema, ""})
 	t.Unlock()
 	return targetSchema, ""
-
 }
 
 // Remove implements Router's Remove(), but it do nothing now

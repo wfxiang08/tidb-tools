@@ -75,5 +75,4 @@ func (t *testRouteSuite) testMatch(c *C, r TableRouter) {
 	c.Assert(shema, Equals, "abc")
 	c.Assert(table, Equals, "")
 	c.Assert(trie.cache["`dbc`"], DeepEquals, []string{"abc", ""})
-
 }
