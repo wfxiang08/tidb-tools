@@ -94,6 +94,12 @@ func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTab
 		t.Unlock()
 		return errors.Trace(err)
 	}
+	if len(schema.schema) > 0 && targetSchema != schema.schema {
+		t.Unlock()
+		return errors.Errorf("can't overwrite target %s", schema.schema)
+	}
+	schema.schema = targetSchema
+
 	// insert table pattern
 	if len(patternTable) > 0 && len(targetTable) > 0 {
 		if schema.child == nil {
@@ -110,12 +116,6 @@ func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTab
 		}
 		item.schema = targetSchema
 		item.table = targetTable
-	} else {
-		if len(schema.schema) > 0 && targetSchema != schema.schema {
-			t.Unlock()
-			return errors.Errorf("can't overwrite target %s", schema.schema)
-		}
-		schema.schema = targetSchema
 	}
 	t.Unlock()
 	return nil
@@ -243,7 +243,7 @@ func (t *trieRouter) AllRules() map[string]map[string][]string {
 		for kt, table := range tables {
 			rule[kt] = []string{table.schema, table.table}
 		}
-		if len(schema.schema) > 0 {
+		if len(tables) == 0 {
 			rule[""] = []string{schema.schema, ""}
 		}
 		rules[ks] = rule
