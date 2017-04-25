@@ -517,7 +517,10 @@ func (s *Syncer) run() error {
 
 	// support regex
 	s.genRegexMap()
-	s.genRouter()
+	err = s.genRouter()
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	streamer, isGTIDMode, err := s.getBinlogStreamer()
 	if err != nil {
@@ -727,12 +730,16 @@ func (s *Syncer) run() error {
 	}
 }
 
-func (s *Syncer) genRouter() {
+func (s *Syncer) genRouter() error {
 	s.tableRouter = route.NewTrieRouter()
 
 	for _, rule := range s.cfg.RouteRules {
-		s.tableRouter.Insert(rule.PatternSchema, rule.PatternTable, rule.TargetSchema, rule.TargertTable)
+		err := s.tableRouter.Insert(rule.PatternSchema, rule.PatternTable, rule.TargetSchema, rule.TargertTable)
+		if err != nil {
+			return errors.Trace(err)
+		}
 	}
+	return nil
 }
 
 func (s *Syncer) genRegexMap() {
