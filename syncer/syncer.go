@@ -731,7 +731,7 @@ func (s *Syncer) genRouter() {
 	s.tableRouter = route.NewTrieRouter()
 
 	for _, rule := range s.cfg.RouteRules {
-		s.tableRouter.Insert(rule.Schema, rule.Table, rule.TargetSchema, rule.TargertTable)
+		s.tableRouter.Insert(rule.PatternSchema, rule.PatternTable, rule.TargetSchema, rule.TargertTable)
 	}
 }
 

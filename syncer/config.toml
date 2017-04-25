@@ -26,19 +26,16 @@ pprof-addr = ":10081"
 # skip-sqls = ["^ALTER\\s+USER", "^CREATE\\s+USER"]
 
 [[route-rules]]
-kind = "table"
-pattern = "abc_*"
-target = "abc"
+pattern-schema = "route_*"
+pattern-table = "abc_*"
+target-schema = "route"
+target-table = "abc"
 
 [[route-rules]]
-kind = "table"
-pattern = "xyz_*"
-target = "xyz"
-
-[[route-rules]]
-kind = "schema"
-pattern = "abc_*"
-target = "abc"
+pattern-schema = "route_*"
+pattern-table = "xyz_*"
+target-schema = "route"
+target-table = "xyz"
 
 [from]
 host = "127.0.0.1"

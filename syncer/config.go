@@ -61,10 +61,10 @@ type TableName struct {
 // RouteRule is route rule that syncing
 // schema and table to specified schem and table
 type RouteRule struct {
-	Schema       string `toml:"schema" json:"schema"`
-	Table        string `toml:"table" json:"table"`
-	TargetSchema string `toml:"target-schema" json:"target-schema"`
-	TargertTable string `toml:"target-table" json:"target-table"`
+	PatternSchema string `toml:"pattern-schema" json:"pattern-schema"`
+	PatternTable  string `toml:"pattern-table" json:"pattern-table"`
+	TargetSchema  string `toml:"target-schema" json:"target-schema"`
+	TargertTable  string `toml:"target-table" json:"target-table"`
 }
 
 func (c DBConfig) String() string {
