@@ -18,7 +18,7 @@ type testRouteSuite struct{}
 func (t *testRouteSuite) TestRoute(c *C) {
 	r := NewTrieRouter()
 	t.testInsert(c, r)
-	//t.testMatch(c, r)
+	t.testMatch(c, r)
 }
 
 func (t *testRouteSuite) testInsert(c *C, r TableRouter) {
@@ -26,7 +26,8 @@ func (t *testRouteSuite) testInsert(c *C, r TableRouter) {
 	cases := map[string]map[string][]string{
 		"?bc":  map[string][]string{"abc*": {"abc", "abc1"}, "xyz*": {"abc", "abc2"}},
 		"a?c":  map[string][]string{"xyz*": {"abc", "abc2"}, "abc*": {"abc", "abc2"}},
-		"ab*":  map[string][]string{"abc*": {"abc", "abc3"}, "": {"xyz", ""}},
+		"ab*":  map[string][]string{"abc*": {"abc", "abc3"}},
+		"a*":   map[string][]string{"": {"abc", ""}},
 		"xyz":  map[string][]string{"xyz*": {"abc", "abc4"}},
 		"xyy*": map[string][]string{"xyz*": {"xyz", "abc5"}},
 	}

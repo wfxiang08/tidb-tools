@@ -84,7 +84,7 @@ func NewTrieRouter() TableRouter {
 // Insert implements Router's Insert()
 func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTable string) error {
 	if len(patternSchema) == 0 || len(targetSchema) == 0 {
-		return errors.Errorf("pattern schema %s and target schema %s/%s can't be empty", patternSchema, targetSchema)
+		return errors.Errorf("pattern schema %s and target schema %s can't be empty", patternSchema, targetSchema)
 	}
 
 	t.Lock()
@@ -94,6 +94,12 @@ func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTab
 		t.Unlock()
 		return errors.Trace(err)
 	}
+	if len(schema.schema) > 0 && targetSchema != schema.schema {
+		t.Unlock()
+		return errors.Errorf("can't overwrite target %s", schema.schema)
+	}
+	schema.schema = targetSchema
+
 	// insert table pattern
 	if len(patternTable) > 0 && len(targetTable) > 0 {
 		if schema.child == nil {
@@ -110,12 +116,6 @@ func (t *trieRouter) Insert(patternSchema, patternTable, targetSchema, targetTab
 		}
 		item.schema = targetSchema
 		item.table = targetTable
-	} else {
-		if len(schema.schema) > 0 && targetSchema != schema.schema {
-			t.Unlock()
-			return errors.Errorf("can't overwrite target %s", schema.schema)
-		}
-		schema.schema = targetSchema
 	}
 	t.Unlock()
 	return nil
@@ -178,7 +178,7 @@ func (t *trieRouter) Match(schema, table string) (string, string) {
 	// try to find schema/table in cache
 	targetStr := fmt.Sprintf("`%s`", schema)
 	if len(table) > 0 {
-		fmt.Sprintf("`%s`.`%s`", schema, table)
+		targetStr = fmt.Sprintf("`%s`.`%s`", schema, table)
 	}
 	targets, ok := t.cache[targetStr]
 	t.RUnlock()
@@ -203,7 +203,6 @@ func (t *trieRouter) Match(schema, table string) (string, string) {
 		// find matched tables
 		t.matchNode(schema.child, table, targetTables)
 		if len(targetTables.items) > 0 {
-
 			t.cache[targetStr] = []string{targetTables.items[0].schema, targetTables.items[0].table}
 			if len(t.cache) > maxCacheNum {
 				for literal := range t.cache {
@@ -244,7 +243,7 @@ func (t *trieRouter) AllRules() map[string]map[string][]string {
 		for kt, table := range tables {
 			rule[kt] = []string{table.schema, table.table}
 		}
-		if len(schema.schema) > 0 {
+		if len(tables) == 0 {
 			rule[""] = []string{schema.schema, ""}
 		}
 		rules[ks] = rule
