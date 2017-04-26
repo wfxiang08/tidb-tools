@@ -18,15 +18,16 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
-	"strconv"
 
 	"github.com/juju/errors"
 	"github.com/ngaut/log"
 )
 
 var (
+	// FileNumPerBlockSuffix defines file-num-per-block suffix.
 	FileNumPerBlockSuffix = ".file-num-per-block"
 )
 
@@ -52,7 +53,7 @@ func newCheckPoint(filename string) *CheckPoint {
 	return cp
 }
 
-// Get restored data files for table
+// GetRestoredFiles get restored data files for table
 func (cp *CheckPoint) GetRestoredFiles(db, table string) Set {
 	if tables, ok := cp.restoredFiles[db]; ok {
 		if restoredFiles, ok := tables[table]; ok {
@@ -62,7 +63,7 @@ func (cp *CheckPoint) GetRestoredFiles(db, table string) Set {
 	return make(Set)
 }
 
-// Query if table finished.
+// IsTableFinished query if table finished.
 func (cp *CheckPoint) IsTableFinished(db, table string) bool {
 	key := strings.Join([]string{db, table}, ".")
 	if _, ok := cp.finishedTables[key]; ok {
@@ -71,7 +72,7 @@ func (cp *CheckPoint) IsTableFinished(db, table string) bool {
 	return false
 }
 
-// Calculate which table has finished and which table partial restored.
+// CalcProgress calculate which table has finished and which table partial restored.
 func (cp *CheckPoint) CalcProgress(allFiles map[string]Tables2DataFiles) {
 	for db, tables := range cp.restoredFiles {
 		dbTables, ok := allFiles[db]

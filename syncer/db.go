@@ -717,8 +717,8 @@ func findLastWord(literal string) int {
 	return index
 }
 
-func createDB(cfg DBConfig) (*sql.DB, error) {
-	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8&interpolateParams=true", cfg.User, cfg.Password, cfg.Host, cfg.Port)
+func createDB(cfg DBConfig, timeout string) (*sql.DB, error) {
+	dbDSN := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8&interpolateParams=true&readTimeout=%s", cfg.User, cfg.Password, cfg.Host, cfg.Port, timeout)
 	db, err := sql.Open("mysql", dbDSN)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -735,10 +735,10 @@ func closeDB(db *sql.DB) error {
 	return errors.Trace(db.Close())
 }
 
-func createDBs(cfg DBConfig, count int) ([]*sql.DB, error) {
+func createDBs(cfg DBConfig, count int, timeout string) ([]*sql.DB, error) {
 	dbs := make([]*sql.DB, 0, count)
 	for i := 0; i < count; i++ {
-		db, err := createDB(cfg)
+		db, err := createDB(cfg, timeout)
 		if err != nil {
 			return nil, errors.Trace(err)
 		}

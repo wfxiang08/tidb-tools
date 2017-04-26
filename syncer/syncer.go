@@ -39,6 +39,9 @@ var (
 	maxWaitTime  = 3 * time.Second
 	eventTimeout = 3 * time.Second
 	statusTime   = 30 * time.Second
+
+	maxDMLConnectionTimeout = "3s"
+	maxDDLConnectionTimeout = "3h"
 )
 
 // Syncer can sync your MySQL data to another MySQL database.
@@ -58,6 +61,7 @@ type Syncer struct {
 
 	fromDB *sql.DB
 	toDBs  []*sql.DB
+	ddlDB  *sql.DB
 
 	done chan struct{}
 	jobs []chan *job
@@ -87,7 +91,7 @@ func NewSyncer(cfg *Config) *Syncer {
 	syncer.lastCount.Set(0)
 	syncer.count.Set(0)
 	syncer.done = make(chan struct{})
-	syncer.jobs = newJobChans(cfg.WorkerCount)
+	syncer.jobs = newJobChans(cfg.WorkerCount + 1)
 	syncer.tables = make(map[string]*table)
 	syncer.ctx, syncer.cancel = context.WithCancel(context.Background())
 	syncer.patternMap = make(map[string]*regexp.Regexp)
@@ -388,8 +392,12 @@ func (s *Syncer) addJob(job *job) error {
 	if len(job.sql) > 0 {
 		s.jobWg.Add(1)
 		log.Debugf("add job [sql]%s; [position]%v", job.sql, job.pos)
-		idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
-		s.jobs[idx] <- job
+		if job.tp == ddl {
+			s.jobs[s.cfg.WorkerCount] <- job
+		} else {
+			idx := int(genHashKey(job.key)) % s.cfg.WorkerCount
+			s.jobs[idx] <- job
+		}
 	}
 
 	wait := s.checkWait(job)
@@ -499,13 +507,7 @@ func (s *Syncer) run() error {
 
 	s.syncer = replication.NewBinlogSyncer(&cfg)
 
-	var err error
-	s.fromDB, err = createDB(s.cfg.From)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	s.toDBs, err = createDBs(s.cfg.To, s.cfg.WorkerCount+1)
+	err := s.createDBs()
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -534,6 +536,7 @@ func (s *Syncer) run() error {
 	for i := 0; i < s.cfg.WorkerCount; i++ {
 		go s.sync(s.toDBs[i], s.jobs[i])
 	}
+	go s.sync(s.ddlDB, s.jobs[s.cfg.WorkerCount])
 
 	s.wg.Add(1)
 	go s.printStatus()
@@ -844,6 +847,27 @@ func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, bool, error) 
 	}
 
 	return s.startSyncByPosition()
+}
+
+func (s *Syncer) createDBs() error {
+	var err error
+	s.fromDB, err = createDB(s.cfg.From, maxDMLConnectionTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	s.toDBs = make([]*sql.DB, 0, s.cfg.WorkerCount)
+	s.toDBs, err = createDBs(s.cfg.To, s.cfg.WorkerCount, maxDMLConnectionTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	// db for ddl
+	s.ddlDB, err = createDB(s.cfg.To, maxDDLConnectionTimeout)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	return nil
 }
 
 // record skip ddl/dml sqls' position
