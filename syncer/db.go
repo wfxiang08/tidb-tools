@@ -496,7 +496,7 @@ func genDDLSQL(sql string, originTableNames []*TableName, targetTableNames []*Ta
 		// replce `create table schame.table` section
 		sqlPrefix = createTableRegex.FindString(sql)
 		index = findLastWord(sqlPrefix)
-		endChars := fetchTableDefine(sqlPrefix[index:])
+		endChars := findTableDefineIndex(sqlPrefix[index:])
 		return createTableRegex.ReplaceAllString(sql, fmt.Sprintf("%s`%s`.`%s`%s", sqlPrefix[:index], targetTableNames[0].Schema, targetTableNames[0].Name, endChars)), nil
 	case *ast.DropTableStmt:
 		sqlPrefix := dropTableRegex.FindString(sql)
@@ -518,7 +518,7 @@ func genDDLSQL(sql string, originTableNames []*TableName, targetTableNames []*Ta
 	return fmt.Sprintf("use `%s`; %s;", targetTableNames[0].Schema, sql), nil
 }
 
-func fetchTableDefine(literal string) string {
+func findTableDefineIndex(literal string) string {
 	for i := range literal {
 		if literal[i] == '(' {
 			return literal[i:]
@@ -710,10 +710,8 @@ func findLastWord(literal string) int {
 		if literal[index-1] == ' ' {
 			return index
 		}
-
 		index--
 	}
-
 	return index
 }
 

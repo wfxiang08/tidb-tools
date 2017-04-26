@@ -59,7 +59,7 @@ type TableName struct {
 }
 
 // RouteRule is route rule that syncing
-// schema and table to specified schem and table
+// schema/table to specified schema/table
 type RouteRule struct {
 	PatternSchema string `toml:"pattern-schema" json:"pattern-schema"`
 	PatternTable  string `toml:"pattern-table" json:"pattern-table"`
