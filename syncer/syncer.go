@@ -88,6 +88,8 @@ func NewSyncer(cfg *Config) *Syncer {
 	syncer.lastCount.Set(0)
 	syncer.count.Set(0)
 	syncer.done = make(chan struct{})
+
+	// 定义不同的队列
 	syncer.jobs = newJobChans(cfg.WorkerCount + 1)
 	syncer.tables = make(map[string]*table)
 	syncer.ctx, syncer.cancel = context.WithCancel(context.Background())
@@ -98,6 +100,7 @@ func NewSyncer(cfg *Config) *Syncer {
 func newJobChans(count int) []chan *job {
 	jobs := make([]chan *job, 0, count)
 	for i := 0; i < count; i++ {
+		// 一次处理1000条数据更新
 		jobs = append(jobs, make(chan *job, 1000))
 	}
 
@@ -124,11 +127,16 @@ func (s *Syncer) Start() error {
 		return errors.Trace(err)
 	}
 
+	// 类型: struct{}
+	// 构造该类型的实例 struct{} {}
 	s.done <- struct{}{}
 
 	return nil
 }
 
+//
+// 检查fromDB的binlog_format
+//
 func (s *Syncer) checkBinlogFormat() error {
 	rows, err := s.fromDB.Query(`SHOW GLOBAL VARIABLES LIKE "binlog_format";`)
 	if err != nil {
@@ -174,6 +182,9 @@ func (s *Syncer) clearTables() {
 	s.tables = make(map[string]*table)
 }
 
+//
+// 从数据库读取Table的信息
+//
 func (s *Syncer) getTableFromDB(db *sql.DB, schema string, name string) (*table, error) {
 	table := &table{}
 	table.schema = schema
@@ -196,6 +207,8 @@ func (s *Syncer) getTableFromDB(db *sql.DB, schema string, name string) (*table,
 	return table, nil
 }
 
+// SHOW COLUMNS FROM xxx
+//
 func (s *Syncer) getTableColumns(db *sql.DB, table *table) error {
 	if table.schema == "" || table.name == "" {
 		return errors.New("schema/table is empty")
@@ -355,7 +368,7 @@ func (s *Syncer) addCount(tp opType, n int64) {
 	case ddl:
 		sqlJobsTotal.WithLabelValues("ddl").Add(float64(n))
 	case xid, gtid:
-		// skip xid, gtid jobs
+	// skip xid, gtid jobs
 	default:
 		panic("unreachable")
 	}
@@ -377,10 +390,12 @@ func (s *Syncer) checkWait(job *job) bool {
 
 func (s *Syncer) addJob(job *job) error {
 	switch job.tp {
+	// 这两个信息设计到重要的pos信息， 但是优先保存在内存中
 	case xid:
 		return s.meta.Save(job.pos, "", "", false)
 	case gtid:
 		return s.meta.Save(job.pos, job.gtid.id, job.gtid.gtid, false)
+
 	case ddl:
 		// while meet ddl, we should wait all dmls finished firstly
 		s.jobWg.Wait()
@@ -419,6 +434,9 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 	lastSyncTime := time.Now()
 	tpCnt := make(map[opType]int64)
 
+	// sync函数中: 每一个job都对应jobWg中的一个计数器
+	// executeSQL 可能一次执行多个job
+	// 在执行完毕之后，clearF时可能要清除idx个jobWg的状态
 	clearF := func() {
 		for i := 0; i < idx; i++ {
 			s.jobWg.Done()
@@ -444,11 +462,13 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 			idx++
 
 			if job.tp == ddl {
+				// 如果是ddl, 则将之前缓存的sql先执行完毕
 				err = executeSQL(db, sqls, args, true)
 				if err != nil {
 					log.Fatalf(errors.ErrorStack(err))
 				}
 
+				// 单独执行ddl
 				err = executeSQL(db, []string{job.sql}, [][]interface{}{job.args}, false)
 				if err != nil {
 					if !ignoreDDLError(err) {
@@ -462,11 +482,14 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 				clearF()
 
 			} else {
+				// 继续buffer
 				sqls = append(sqls, job.sql)
 				args = append(args, job.args)
 				tpCnt[job.tp]++
+
 			}
 
+			// 批量执行
 			if idx >= count {
 				err = executeSQL(db, sqls, args, true)
 				if err != nil {
@@ -493,6 +516,7 @@ func (s *Syncer) sync(db *sql.DB, jobChan chan *job) {
 func (s *Syncer) run() error {
 	defer s.wg.Done()
 
+	// 1. 创建replication sync
 	cfg := replication.BinlogSyncerConfig{
 		ServerID: uint32(s.cfg.ServerID),
 		Flavor:   "mysql",
@@ -504,11 +528,13 @@ func (s *Syncer) run() error {
 
 	s.syncer = replication.NewBinlogSyncer(&cfg)
 
+	// 2. 创建数据库连接
 	err := s.createDBs()
 	if err != nil {
 		return errors.Trace(err)
 	}
 
+	// 3. 检查binlog的格式
 	err = s.checkBinlogFormat()
 	if err != nil {
 		return errors.Trace(err)
@@ -517,6 +543,7 @@ func (s *Syncer) run() error {
 	// support regex
 	s.genRegexMap()
 
+	// 5. 获取binlogStreamer
 	streamer, isGTIDMode, err := s.getBinlogStreamer()
 	if err != nil {
 		return errors.Trace(err)
@@ -526,6 +553,9 @@ func (s *Syncer) run() error {
 	s.lastTime = s.start
 
 	s.wg.Add(s.cfg.WorkerCount)
+
+	// 什么逻辑呢?
+	// 不同的jobs的定义?
 	for i := 0; i < s.cfg.WorkerCount; i++ {
 		go s.sync(s.toDBs[i], s.jobs[i])
 	}
@@ -542,6 +572,7 @@ func (s *Syncer) run() error {
 	)
 	var alreadyIgnoreAllRotateEvent bool
 	for {
+		// 主线程读取Event
 		ctx, cancel := context.WithTimeout(s.ctx, eventTimeout)
 		e, err := streamer.GetEvent(ctx)
 		cancel()
@@ -571,6 +602,7 @@ func (s *Syncer) run() error {
 		case *replication.RotateEvent:
 			binlogEventsTotal.WithLabelValues("rotate").Inc()
 
+			// 更新Position
 			pos.Name = string(ev.NextLogName)
 			pos.Pos = uint32(ev.Position)
 
@@ -583,8 +615,14 @@ func (s *Syncer) run() error {
 		case *replication.RowsEvent:
 			// binlogEventsTotal.WithLabelValues("type", "rows").Add(1)
 
+			//
+			// binlog中的event带有的信息比较少，例如: @1='a', @2='b'
+			// 如何和Table的Schema结合起来呢?
+			//
 			table := &table{}
+			// 是否跳过呢?
 			if s.skipRowEvent(string(ev.Table.Schema), string(ev.Table.Table)) {
+
 				binlogSkippedEventsTotal.WithLabelValues("rows").Inc()
 				if err = s.recordSkipSQLsPos(insert, pos); err != nil {
 					return errors.Trace(err)
@@ -593,7 +631,12 @@ func (s *Syncer) run() error {
 				log.Warnf("[skip RowsEvent]db:%s table:%s", ev.Table.Schema, ev.Table.Table)
 				continue
 			}
+
+			// 获取schema等信息呢?
+			// schema如何响应ddl, 自动同步更新呢?
+			//
 			table, err = s.getTable(string(ev.Table.Schema), string(ev.Table.Table))
+
 			if err != nil {
 				return errors.Trace(err)
 			}
@@ -605,9 +648,13 @@ func (s *Syncer) run() error {
 				args [][]interface{}
 			)
 			switch e.Header.EventType {
+			// 处理各种格式的Write Rows, Update Rows, Delete Rows的操作
 			case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+
+				// 增加计数器
 				binlogEventsTotal.WithLabelValues("write_rows").Inc()
 
+				// 将binlog的数据转换成为明文的SQL
 				sqls, keys, args, err = genInsertSQLs(table.schema, table.name, ev.Rows, table.columns, table.indexColumns)
 				if err != nil {
 					return errors.Errorf("gen insert sqls failed: %v, schema: %s, table: %s", err, table.schema, table.name)
@@ -623,6 +670,7 @@ func (s *Syncer) run() error {
 			case replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
 				binlogEventsTotal.WithLabelValues("update_rows").Inc()
 
+				// 将binlog的数据转换成为明文的SQL
 				sqls, keys, args, err = genUpdateSQLs(table.schema, table.name, ev.Rows, table.columns, table.indexColumns)
 				if err != nil {
 					return errors.Errorf("gen update sqls failed: %v, schema: %s, table: %s", err, table.schema, table.name)
@@ -638,11 +686,17 @@ func (s *Syncer) run() error {
 			case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
 				binlogEventsTotal.WithLabelValues("delete_rows").Inc()
 
+				// 将binlog的数据转换成为明文的SQL
 				sqls, keys, args, err = genDeleteSQLs(table.schema, table.name, ev.Rows, table.columns, table.indexColumns)
 				if err != nil {
 					return errors.Errorf("gen delete sqls failed: %v, schema: %s, table: %s", err, table.schema, table.name)
 				}
 
+				// SQL语句到Job的分拆
+				// TODO: 结合kingshard, 将可以实现一个同步Sharding的工具
+				//   OriginDB <--> Shard0, Shard1, ..., ShardN-1
+				//   通过binlog相互同步, 这样数据Sharding完毕之后，代码可以直接迁移；待部署完毕，可以停止OriginDB的更新
+				// 如果只是定制，那么可以直接通过ev.Rows获取指定指定的信息来做Sharding, 不需要搞什么AST之类的东西
 				for i := range sqls {
 					job := newJob(del, sqls[i], args[i], keys[i], true, pos)
 					err = s.addJob(job)
@@ -652,9 +706,12 @@ func (s *Syncer) run() error {
 				}
 			}
 		case *replication.QueryEvent:
+			//
+			// DDL为什么也归属于QueryEvent
+			//
 			binlogEventsTotal.WithLabelValues("query").Inc()
 
-			ok := false
+			// ok := false
 			sql := string(ev.Query)
 
 			log.Debugf("[query]%s", sql)
@@ -662,6 +719,7 @@ func (s *Syncer) run() error {
 			lastPos := pos
 			pos.Pos = e.Header.LogPos
 			sqls, ok, err := resolveDDLSQL(sql)
+
 			if err != nil {
 				if s.skipQueryEvent(sql, string(ev.Schema)) {
 					binlogSkippedEventsTotal.WithLabelValues("query").Inc()
@@ -701,9 +759,12 @@ func (s *Syncer) run() error {
 
 				log.Infof("[ddl][end]%s[pos]%v[next pos]%v", sql, lastPos, pos)
 
+				// DDL之后如何处理Tables的状态
+				// 直接clear, 重来
 				s.clearTables()
 			}
 		case *replication.XIDEvent:
+			// XID: 这个似乎和重要
 			pos.Pos = e.Header.LogPos
 			job := newXIDJob(pos)
 			s.addJob(job)
@@ -804,6 +865,7 @@ func (s *Syncer) printStatus() {
 func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, bool, error) {
 	gtidMap := s.meta.GTID()
 
+	// 假设不使用GTID
 	if s.cfg.EnableGTID && len(gtidMap) != 0 {
 		var gtids []string
 		for _, val := range gtidMap {
@@ -830,16 +892,20 @@ func (s *Syncer) getBinlogStreamer() (*replication.BinlogStreamer, bool, error) 
 
 func (s *Syncer) createDBs() error {
 	var err error
+	// 创建fromDB
 	s.fromDB, err = createDB(s.cfg.From, maxDMLConnectionTimeout)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	s.toDBs = make([]*sql.DB, 0, s.cfg.WorkerCount)
+
+	// 根据workerCount来创建多个不同的sql.DB
 	s.toDBs, err = createDBs(s.cfg.To, s.cfg.WorkerCount, maxDMLConnectionTimeout)
 	if err != nil {
 		return errors.Trace(err)
 	}
+
 	// db for ddl
 	s.ddlDB, err = createDB(s.cfg.To, maxDDLConnectionTimeout)
 	if err != nil {
@@ -862,6 +928,7 @@ func (s *Syncer) recordSkipSQLsPos(op opType, pos mysql.Position) error {
 }
 
 func (s *Syncer) startSyncByPosition() (*replication.BinlogStreamer, bool, error) {
+	// 开始同步
 	streamer, err := s.syncer.StartSync(s.meta.Pos())
 	return streamer, false, errors.Trace(err)
 }

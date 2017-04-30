@@ -23,6 +23,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+// https://prometheus.io/docs/visualization/template_reference/
+// 数据库 & Grafana做可视化
+
+//
+// 如何处理状态呢?
+// 一直被忽视，但是又非常重要的模块
+//
 var (
 	binlogEventsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{

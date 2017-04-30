@@ -84,6 +84,7 @@ func isNotRotateEvent(e *replication.BinlogEvent) bool {
 	}
 }
 
+// 下标，name, 有无符号
 type column struct {
 	idx      int
 	name     string
@@ -188,6 +189,7 @@ func findColumns(columns []*column, indexColumns []string) []*column {
 	return result
 }
 
+// insert into table_name (`id`, `name`) 中的column list
 func genColumnList(columns []*column) string {
 	var columnList []byte
 	for i, column := range columns {
@@ -223,17 +225,29 @@ func genColumnPlaceholders(length int) string {
 	return strings.Join(values, ",")
 }
 
-func genInsertSQLs(schema string, table string, dataSeq [][]interface{}, columns []*column, indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+// table信息: schema, table
+// dataSeq[] 多条dml参数
+// columns 表的结构
+// index作用
+func genInsertSQLs(schema string, table string, dataSeq [][]interface{}, columns []*column,
+	indexColumns []*column) ([]string, []string, [][]interface{}, error) {
+
 	sqls := make([]string, 0, len(dataSeq))
 	keys := make([]string, 0, len(dataSeq))
 	values := make([][]interface{}, 0, len(dataSeq))
+
+	// (`id`, `name`)
 	columnList := genColumnList(columns)
+	// (?, ?)
 	columnPlaceholders := genColumnPlaceholders(len(columns))
+
 	for _, data := range dataSeq {
+		// 验证数据的有效性
 		if len(data) != len(columns) {
 			return nil, nil, nil, errors.Errorf("insert columns and data mismatch in length: %d vs %d", len(columns), len(data))
 		}
 
+		// 根据schema做一个类型的转换
 		value := make([]interface{}, 0, len(data))
 		for i := range data {
 			value = append(value, castUnsigned(data[i], columns[i].unsigned))
@@ -589,6 +603,7 @@ LOOP:
 			time.Sleep(retryTimeout)
 		}
 
+		// 放在一个事务内部
 		txn, err = db.Begin()
 		if err != nil {
 			log.Errorf("exec sqls[%v] begin failed %v", sqls, errors.ErrorStack(err))
@@ -598,6 +613,7 @@ LOOP:
 		for i := range sqls {
 			log.Debugf("[exec][sql]%s[args]%v", sqls[i], args[i])
 
+			// 中间处理异常
 			_, err = txn.Exec(sqls[i], args[i]...)
 			if err != nil {
 				if !isRetryableError(err) {
@@ -616,6 +632,7 @@ LOOP:
 				continue LOOP
 			}
 		}
+		// 提交事务
 		err = txn.Commit()
 		if err != nil {
 			log.Errorf("exec sqls[%v] commit failed %v", sqls, errors.ErrorStack(err))

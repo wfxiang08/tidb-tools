@@ -66,6 +66,7 @@ func main() {
 		syncer.Close()
 	}()
 
+	// 状态
 	if cfg.StatusAddr != "" {
 		initStatusAndMetrics(cfg.StatusAddr)
 	}

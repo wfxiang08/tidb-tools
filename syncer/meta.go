@@ -87,6 +87,9 @@ func (lm *LocalMeta) Save(pos mysql.Position, id string, gtid string, force bool
 	lm.Lock()
 	defer lm.Unlock()
 
+	//
+	// 优先保存到内存中
+	//
 	lm.BinLogName = pos.Name
 	lm.BinLogPos = pos.Pos
 

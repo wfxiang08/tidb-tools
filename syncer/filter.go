@@ -37,10 +37,15 @@ func init() {
 // whiteFilter whitelist filtering
 func (s *Syncer) whiteFilter(stbs []TableName) []TableName {
 	var tbs []TableName
+
+	// 如果没有指定，则直接跳过
 	if len(s.cfg.DoTables) == 0 && len(s.cfg.DoDBs) == 0 {
 		return stbs
 	}
+
 	for _, tb := range stbs {
+		// 这是什么逻辑呢?
+		// tbs是否包含重复的选项呢?
 		if s.matchTable(s.cfg.DoTables, tb) {
 			tbs = append(tbs, tb)
 		}
@@ -89,6 +94,7 @@ func (s *Syncer) skipQueryEvent(sql string, schema string) bool {
 
 // skipRowEvent first whitelist filtering and then blacklist filtering
 func (s *Syncer) skipRowEvent(schema string, table string) bool {
+	// mysql中的很多数据，可能涉及到授权等，这里不同步
 	if schema == defaultIgnoreDB {
 		return true
 	}
@@ -98,6 +104,8 @@ func (s *Syncer) skipRowEvent(schema string, table string) bool {
 			Name:   strings.ToLower(table),
 		},
 	}
+
+	// 如何做Filter呢?
 	tbs = s.whiteFilter(tbs)
 	tbs = s.blackFilter(tbs)
 	if len(tbs) == 0 {
